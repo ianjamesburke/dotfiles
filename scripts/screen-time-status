@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+"""
+Query screen time from daily_log JSONL files.
+Reads YYYY-MM-DD_screen.jsonl for today's data.
+Falls back to workout-tracker DB if no JSONL exists yet.
+"""
+import json
+import os
+import sqlite3
+from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
+
+LOG_DIR = Path(os.environ.get("DAILY_LOG_PATH", os.path.expanduser("~/github/daily_log")))
+DB_PATH = Path(os.path.expanduser("~/github/workout-tracker/data/tracker.db"))
+
+APP_CATEGORIES = {
+    'Deep Work': ['Kiro', 'Codex', 'Ghostty', 'Terminal', 'iTerm', 'VS Code', 'Visual Studio Code', 'PyCharm', 'IntelliJ', 'Xcode', 'Sublime Text', 'Cursor', 'Zed', 'Nova'],
+    'YouTube': ['YouTube'],
+    'Social Media': ['Telegram', 'WhatsApp', 'Messages', 'Discord', 'Slack', 'Teams', 'Twitter', 'X', 'Facebook', 'Instagram', 'TikTok', 'Reddit', 'LinkedIn', 'Signal'],
+    'Entertainment': ['Spotify', 'Apple Music', 'Netflix', 'Twitch', 'Steam', 'VLC', 'Music', 'TV', 'Podcasts'],
+    'Browsers': ['Google Chrome', 'Safari', 'Firefox', 'Edge', 'Brave', 'Arc', 'Comet'],
+    'Productivity': ['Notion', 'Obsidian', 'Notes', 'Todoist', 'Things', 'Calendar', 'Mail', 'Outlook', 'Excel', 'Word'],
+    'Design': ['Figma', 'Sketch', 'Adobe Photoshop', 'Adobe Illustrator', 'Canva', 'Blender']
+}
+
+
+def categorize(app_name):
+    for cat, apps in APP_CATEGORIES.items():
+        if any(a.lower() in app_name.lower() for a in apps):
+            return cat
+    return 'Other'
+
+
+def fmt(secs):
+    h, m = int(secs // 3600), int((secs % 3600) // 60)
+    return f"{h}h {m}m" if h > 0 else f"{m}m"
+
+
+def read_jsonl(date_str=None):
+    if not date_str:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+    jsonl_file = LOG_DIR / f"{date_str}_screen.jsonl"
+    if not jsonl_file.exists():
+        return None
+
+    entries = []
+    for line in jsonl_file.read_text().strip().split("\n"):
+        if line.strip():
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return entries
+
+
+def display_from_jsonl(entries):
+    app_totals = defaultdict(int)
+    cat_totals = defaultdict(int)
+    last_entry = None
+
+    for entry in entries:
+        app = entry.get("app", "Unknown")
+        secs = entry.get("secs", 0)
+        app_totals[app] += secs
+        cat_totals[categorize(app)] += secs
+
+        # Track YouTube from detail
+        detail = entry.get("detail", "")
+        if "youtube" in detail.lower() and categorize(app) == "Browsers":
+            cat_totals["YouTube"] += secs
+            cat_totals["Browsers"] = max(0, cat_totals["Browsers"] - secs)
+
+        last_entry = entry
+
+    total = sum(cat_totals.values())
+
+    # Current activity
+    if last_entry:
+        current = last_entry.get("app", "Unknown")
+        detail = last_entry.get("detail")
+        is_active = last_entry.get("active", False)
+        is_idle = last_entry.get("idle", False)
+        current_secs = last_entry.get("secs", 0)
+        timestamp = last_entry.get("t", "")
+
+        status = "active" if is_active else ("idle" if is_idle else "")
+        label = f"{current}"
+        if detail:
+            label += f" ({detail})"
+        if status:
+            label += f" [{status}]"
+
+        print(f"Current: {label} — {fmt(current_secs)}")
+        print(f"Last update: {timestamp}")
+
+    print(f"Total screen time: {fmt(total)}")
+    print()
+
+    # Category breakdown
+    print("Categories:")
+    for cat, secs in sorted(cat_totals.items(), key=lambda x: -x[1]):
+        if secs > 0:
+            pct = int(secs / total * 100) if total else 0
+            print(f"  {cat}: {fmt(secs)} ({pct}%)")
+
+    # Top apps
+    print()
+    print("Top apps:")
+    for app, secs in sorted(app_totals.items(), key=lambda x: -x[1])[:10]:
+        print(f"  {app}: {fmt(secs)}")
+
+
+def display_from_db():
+    """Fallback: read from workout-tracker DB (legacy)."""
+    if not DB_PATH.exists():
+        print("No screen time data found (no JSONL file and no DB)")
+        return
+
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT recorded_at, data FROM metrics WHERE source = 'app_switches' ORDER BY recorded_at DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+
+    if not row:
+        print("No screen time data found")
+        return
+
+    data = json.loads(row['data']) if isinstance(row['data'], str) else row['data']
+    durations = data.get('durations', {})
+    total = sum(durations.values())
+
+    print(f"(legacy DB) Total: {fmt(total)} — last sync: {row['recorded_at'][:16]}")
+    print()
+    for app, secs in sorted(durations.items(), key=lambda x: -x[1])[:10]:
+        print(f"  {app}: {fmt(secs)}")
+
+
+def main():
+    entries = read_jsonl()
+    if entries:
+        display_from_jsonl(entries)
+    else:
+        display_from_db()
+
+
+if __name__ == '__main__':
+    main()

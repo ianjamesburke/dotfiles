@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""
+screen-time-log - Write a human-readable screen time summary to daily_log.
+
+Reads from YYYY-MM-DD_screen.jsonl (written by screen_time_watcher_v2 on Mac)
+and writes YYYY-MM-DD_screen.md as a formatted summary.
+
+Falls back to workout-tracker DB if no JSONL exists.
+Designed to run via systemd timer (every 15 min).
+"""
+import json
+import os
+import sqlite3
+from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
+
+LOG_DIR = Path(os.environ.get("DAILY_LOG_PATH", os.path.expanduser("~/github/daily_log")))
+DB_PATH = Path(os.path.expanduser("~/github/workout-tracker/data/tracker.db"))
+
+APP_CATEGORIES = {
+    'Deep Work': ['Kiro', 'Codex', 'Ghostty', 'Terminal', 'iTerm', 'VS Code', 'Visual Studio Code', 'PyCharm', 'IntelliJ', 'Xcode', 'Sublime Text', 'Cursor', 'Zed', 'Nova'],
+    'YouTube': ['YouTube'],
+    'Social Media': ['Telegram', 'WhatsApp', 'Messages', 'Discord', 'Slack', 'Teams', 'Twitter', 'X', 'Facebook', 'Instagram', 'TikTok', 'Reddit', 'LinkedIn', 'Signal'],
+    'Entertainment': ['Spotify', 'Apple Music', 'Netflix', 'Twitch', 'Steam', 'VLC', 'Music', 'TV', 'Podcasts'],
+    'Browsers': ['Google Chrome', 'Safari', 'Firefox', 'Edge', 'Brave', 'Arc', 'Comet'],
+    'Productivity': ['Notion', 'Obsidian', 'Notes', 'Todoist', 'Things', 'Calendar', 'Mail', 'Outlook'],
+    'Design': ['Figma', 'Sketch', 'Adobe Photoshop', 'Adobe Illustrator', 'Canva', 'Blender']
+}
+
+
+def categorize(app_name):
+    for cat, apps in APP_CATEGORIES.items():
+        if any(a.lower() in app_name.lower() for a in apps):
+            return cat
+    return 'Other'
+
+
+def fmt(secs):
+    h, m = int(secs // 3600), int((secs % 3600) // 60)
+    return f"{h}h {m}m" if h > 0 else f"{m}m"
+
+
+def summarize_from_jsonl(today):
+    jsonl_file = LOG_DIR / f"{today}_screen.jsonl"
+    if not jsonl_file.exists():
+        return None
+
+    app_totals = defaultdict(int)
+    cat_totals = defaultdict(int)
+    last_timestamp = ""
+
+    for line in jsonl_file.read_text().strip().split("\n"):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        app = entry.get("app", "Unknown")
+        secs = entry.get("secs", 0)
+        app_totals[app] += secs
+        cat_totals[categorize(app)] += secs
+
+        detail = entry.get("detail", "")
+        if "youtube" in detail.lower() and categorize(app) == "Browsers":
+            cat_totals["YouTube"] += secs
+            cat_totals["Browsers"] = max(0, cat_totals["Browsers"] - secs)
+
+        last_timestamp = entry.get("t", last_timestamp)
+
+    return app_totals, cat_totals, last_timestamp
+
+
+def summarize_from_db():
+    if not DB_PATH.exists():
+        return None
+
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT recorded_at, data FROM metrics WHERE source = 'app_switches' ORDER BY recorded_at DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+
+    if not row:
+        return None
+
+    data = json.loads(row['data']) if isinstance(row['data'], str) else row['data']
+    durations = data.get('durations', {})
+
+    app_totals = dict(durations)
+    cat_totals = defaultdict(int)
+    for app, secs in durations.items():
+        cat_totals[categorize(app)] += secs
+
+    return app_totals, cat_totals, row['recorded_at'][:16]
+
+
+def main():
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    result = summarize_from_jsonl(today)
+    if not result:
+        result = summarize_from_db()
+    if not result:
+        return
+
+    app_totals, cat_totals, last_timestamp = result
+    total = sum(cat_totals.values())
+    if total < 60:
+        return
+
+    sorted_cats = sorted(cat_totals.items(), key=lambda x: -x[1])
+    top_apps = sorted(app_totals.items(), key=lambda x: -x[1])[:10]
+
+    lines = [
+        f"# Screen time for {today}",
+        "",
+        f"**Total: {fmt(total)}** (last updated {last_timestamp})",
+        "",
+        "## Categories",
+        "",
+    ]
+    for cat, secs in sorted_cats:
+        if secs > 0:
+            pct = int(secs / total * 100)
+            lines.append(f"- **{cat}**: {fmt(secs)} ({pct}%)")
+
+    lines.extend(["", "## Top Apps", ""])
+    for app, secs in top_apps:
+        lines.append(f"- {app}: {fmt(secs)}")
+    lines.append("")
+
+    md_file = LOG_DIR / f"{today}_screen.md"
+    md_file.write_text("\n".join(lines))
+    print(f"Updated {md_file}")
+
+
+if __name__ == '__main__':
+    main()

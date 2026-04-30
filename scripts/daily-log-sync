@@ -1,0 +1,44 @@
+#!/bin/bash
+# daily-log-sync - Background git sync for the daily_log repo
+#
+# Usage: daily-log-sync
+#
+# Designed to be run by a systemd timer. Commits any changes,
+# pulls with rebase, and pushes. Silent if nothing to do.
+
+set -euo pipefail
+
+# Support both Linux (~/github/) and Mac (~/Documents/Github/) layouts
+if [ -n "${DAILY_LOG_PATH:-}" ]; then
+    LOG_DIR="$DAILY_LOG_PATH"
+elif [ -d "$HOME/github/daily_log/.git" ]; then
+    LOG_DIR="$HOME/github/daily_log"
+elif [ -d "$HOME/Documents/Github/daily_log/.git" ]; then
+    LOG_DIR="$HOME/Documents/Github/daily_log"
+else
+    LOG_DIR="$HOME/github/daily_log"
+fi
+
+if [ ! -d "$LOG_DIR/.git" ]; then
+    echo "Error: $LOG_DIR is not a git repo" >&2
+    exit 1
+fi
+
+cd "$LOG_DIR"
+
+# Check for any changes (staged, unstaged, or untracked)
+if git diff --quiet && git diff --cached --quiet && [ -z "$(git ls-files --others --exclude-standard)" ]; then
+    # Nothing to commit, but still try to pull in case remote has changes
+    git pull --rebase --quiet 2>/dev/null || true
+    exit 0
+fi
+
+# Stage everything, commit, sync
+git add -A
+git commit -m "auto-sync $(date +%Y-%m-%d\ %H:%M)" --quiet
+
+if git pull --rebase --quiet 2>/dev/null; then
+    git push --quiet 2>/dev/null || echo "Warning: push failed, will retry next cycle" >&2
+else
+    echo "Warning: pull failed, changes committed locally" >&2
+fi

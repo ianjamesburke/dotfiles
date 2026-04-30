@@ -1,0 +1,118 @@
+#!/bin/bash
+# dji-pull - Mount DJI recorder and copy WAV files to inbox
+#
+# Usage: dji-pull [--all]
+#   Default: pulls only the latest recording session (chained split files)
+#   --all:   pulls all WAV files from the device
+#
+# Outputs file paths (one per line) to stdout for piping to other tools.
+# Human-readable status goes to stderr.
+
+set -euo pipefail
+
+DEST_DIR="${MLOG_AUDIO_DIR:-$HOME/mlog_audio}/inbox"
+TARGET_DIR_NAME="DJI_Audio_001"
+PULL_ALL=false
+
+[[ "${1:-}" == "--all" ]] && PULL_ALL=true
+
+mkdir -p "$DEST_DIR"
+
+# Auto-mount known UUIDs if present and unmounted
+TARGET_UUIDS=("572D-79E6" "5687-6608")
+for uuid in "${TARGET_UUIDS[@]}"; do
+    if [ -e "/dev/disk/by-uuid/$uuid" ]; then
+        if ! lsblk -n -o MOUNTPOINT "/dev/disk/by-uuid/$uuid" | grep -q .; then
+            echo "Mounting device $uuid..." >&2
+            udisksctl mount -b "/dev/disk/by-uuid/$uuid" >&2
+        fi
+    fi
+done
+
+# Search for the DJI audio directory
+SEARCH_PATHS=("/run/media/$USER" "/media/$USER" "/mnt")
+FOUND_DIR=""
+
+echo "Searching for DJI recorder..." >&2
+MAX_RETRIES=15
+for ((i=1; i<=MAX_RETRIES; i++)); do
+    for path in "${SEARCH_PATHS[@]}"; do
+        if [ -d "$path" ]; then
+            FOUND_DIR=$(find "$path" -maxdepth 4 -type d -name "$TARGET_DIR_NAME" -print -quit 2>/dev/null)
+            [ -n "$FOUND_DIR" ] && break 2
+        fi
+    done
+    if [ $i -lt $MAX_RETRIES ]; then
+        echo "  Attempt $i/$MAX_RETRIES: not found yet, retrying in 2s..." >&2
+        sleep 2
+    fi
+done
+
+if [ -z "$FOUND_DIR" ]; then
+    echo "Error: DJI recorder not found after 30s." >&2
+    exit 1
+fi
+
+echo "Found: $FOUND_DIR" >&2
+
+# Get all WAV files sorted by modification time (oldest first)
+mapfile -t ALL_FILES < <(find "$FOUND_DIR" -maxdepth 1 -type f -iname "*.wav" -printf "%T@ %p\n" | sort -n | cut -d' ' -f2-)
+
+if [ ${#ALL_FILES[@]} -eq 0 ]; then
+    echo "No WAV files found." >&2
+    exit 1
+fi
+
+# Determine which files to pull
+FILES_TO_COPY=()
+
+if [ "$PULL_ALL" = true ]; then
+    FILES_TO_COPY=("${ALL_FILES[@]}")
+else
+    # Chain-detect: start from latest file, walk backwards finding continuous recordings
+    FILES_TO_COPY=("${ALL_FILES[-1]}")
+    CURRENT_INDEX=$((${#ALL_FILES[@]} - 1))
+
+    while [ $CURRENT_INDEX -gt 0 ]; do
+        PREV_INDEX=$((CURRENT_INDEX - 1))
+        CURRENT_FILE="${ALL_FILES[$CURRENT_INDEX]}"
+        PREV_FILE="${ALL_FILES[$PREV_INDEX]}"
+
+        curr_mtime=$(stat -c %Y "$CURRENT_FILE")
+        prev_mtime=$(stat -c %Y "$PREV_FILE")
+        duration_str=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$CURRENT_FILE")
+
+        # Skip chaining if we can't read duration (file may be corrupted or in-progress)
+        if ! duration=$(printf "%.0f" "$duration_str" 2>/dev/null); then
+            echo "  Warning: Could not read duration of $(basename "$CURRENT_FILE"), stopping chain" >&2
+            break
+        fi
+
+        diff=$((curr_mtime - prev_mtime))
+        delta=$((diff - duration))
+        abs_delta=${delta#-}
+
+        if [ "$abs_delta" -le 10 ]; then
+            echo "  Chained: $(basename "$PREV_FILE")" >&2
+            FILES_TO_COPY=("$PREV_FILE" "${FILES_TO_COPY[@]}")
+            CURRENT_INDEX=$PREV_INDEX
+        else
+            break
+        fi
+    done
+fi
+
+echo "Pulling ${#FILES_TO_COPY[@]} file(s)..." >&2
+
+# Copy files and output destination paths (also output source paths for later cleanup)
+COPIED_PATHS=()
+for src in "${FILES_TO_COPY[@]}"; do
+    dest="$DEST_DIR/$(basename "$src")"
+    cp "$src" "$dest"
+    COPIED_PATHS+=("$dest")
+    echo "$dest"
+    # Also output source path (marked with comment for mlog to parse)
+    echo "# SOURCE: $src" >&2
+done
+
+echo "Done. ${#COPIED_PATHS[@]} file(s) in $DEST_DIR" >&2

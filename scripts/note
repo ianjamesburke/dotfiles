@@ -1,0 +1,93 @@
+#!/usr/bin/zsh
+
+# Configuration
+REPO_PATH="$HOME/github/daily_log"
+REMINDERS_FILE="$REPO_PATH/tomorrow_reminders.md"
+
+# Function to handle errors
+error_exit() {
+    echo "Error: $1" >&2
+    exit 1
+}
+
+# Ensure git is available
+if ! command -v git &> /dev/null; then error_exit "git is not installed"; fi
+
+# Ensure reminders file exists or create it
+ensure_file() {
+    if [[ ! -f "$REMINDERS_FILE" ]]; then
+        # Create it, maybe with a header? 
+        # The log script just reads it, so a header might be treated as content unless ignored.
+        # The log script ignores a specific AI comment line, but otherwise includes everything.
+        # Let's just create an empty file to be safe.
+        touch "$REMINDERS_FILE"
+    fi
+}
+
+sync_repo() {
+    cd "$REPO_PATH" || error_exit "Repo path not found"
+    echo "Syncing..."
+    git pull -q
+}
+
+commit_and_push() {
+    cd "$REPO_PATH" || return
+    
+    git add "$REMINDERS_FILE"
+    
+    if git diff --staged --quiet; then
+        echo "No changes to save."
+        return
+    fi
+    
+    git commit -m "feat: Add reminder for tomorrow" -q
+    echo "Pushing..."
+    git push -q
+    echo "Saved and synced."
+}
+
+list_notes() {
+    sync_repo
+    if [[ -f "$REMINDERS_FILE" && -s "$REMINDERS_FILE" ]]; then
+        echo "Tomorrow's Reminders:"
+        echo "---------------------"
+        cat "$REMINDERS_FILE"
+    else
+        echo "No reminders set for tomorrow."
+    fi
+}
+
+add_note() {
+    local note="$*"
+    sync_repo
+    ensure_file
+    
+    # Check if file ends with newline, if not add one
+    if [[ -s "$REMINDERS_FILE" && "$(tail -c 1 "$REMINDERS_FILE")" != "" ]]; then
+        echo "" >> "$REMINDERS_FILE"
+    fi
+    
+    echo "- $note" >> "$REMINDERS_FILE"
+    echo "Added: $note"
+    commit_and_push
+}
+
+edit_notes() {
+    sync_repo
+    ensure_file
+    ${EDITOR:-nvim} "$REMINDERS_FILE"
+    commit_and_push
+}
+
+# Main logic
+case "$1" in
+    ls|list)
+        list_notes
+        ;;
+    "")
+        edit_notes
+        ;;
+    *)
+        add_note "$*"
+        ;;
+esac

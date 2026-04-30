@@ -1,0 +1,87 @@
+#!/bin/bash
+# audio-transcribe - Transcribe audio to markdown using Whisper
+#
+# Usage: audio-transcribe <audio_file> [--date YYYY-MM-DD] [--label mlog]
+#
+# Output: writes markdown to daily_log dir and prints the path to stdout.
+# If no date given, uses today (or yesterday if before 5am).
+
+set -euo pipefail
+
+LOG_DIR="${DAILY_LOG_PATH:-$HOME/github/daily_log}"
+LABEL="mlog"
+DATE_STR=""
+INPUT_FILE=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --date) DATE_STR="$2"; shift 2 ;;
+        --label) LABEL="$2"; shift 2 ;;
+        *) INPUT_FILE="$1"; shift ;;
+    esac
+done
+
+if [ -z "$INPUT_FILE" ] || [ ! -f "$INPUT_FILE" ]; then
+    echo "Usage: audio-transcribe <audio_file> [--date YYYY-MM-DD] [--label mlog]" >&2
+    exit 1
+fi
+
+if ! command -v whisper >/dev/null; then
+    echo "Error: whisper not found. Install with: pipx install openai-whisper" >&2
+    exit 1
+fi
+
+# Date logic: If no date provided, determine based on current time.
+# (Rationale: Late-night recordings before 5am belong to the previous day's log)
+if [ -z "$DATE_STR" ]; then
+    current_hour=$(date +%H)
+    if [ "$current_hour" -lt 5 ]; then
+        # Before 5am: attribute to yesterday's log
+        DATE_STR=$(date -d "yesterday" +%Y-%m-%d)
+    else
+        # After 5am: attribute to today's log
+        DATE_STR=$(date +%Y-%m-%d)
+    fi
+fi
+
+mkdir -p "$LOG_DIR"
+
+# Find available filename
+LOG_FILE="$LOG_DIR/${DATE_STR}_${LABEL}.md"
+COUNTER=1
+while [ -f "$LOG_FILE" ]; do
+    COUNTER=$((COUNTER + 1))
+    LOG_FILE="$LOG_DIR/${DATE_STR}_${LABEL}_${COUNTER}.md"
+done
+
+# Run whisper
+TEMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TEMP_DIR"' EXIT
+
+echo "Transcribing $(basename "$INPUT_FILE")..." >&2
+whisper "$INPUT_FILE" --model small --output_dir "$TEMP_DIR" --output_format json --language English >&2
+
+# Find the JSON output
+JSON_FILE="$TEMP_DIR/$(basename "${INPUT_FILE%.*}").json"
+
+if [ ! -f "$JSON_FILE" ]; then
+    echo "Error: Whisper produced no output." >&2
+    exit 1
+fi
+
+# Format JSON segments into markdown
+python3 -c "
+import json, sys
+
+with open('$JSON_FILE', 'r') as f:
+    data = json.load(f)
+
+segments = [seg['text'].strip() for seg in data.get('segments', []) if seg['text'].strip()]
+content = f'# $LABEL transcript for $DATE_STR\n\n' + '\n\n'.join(segments) + '\n'
+
+with open('$LOG_FILE', 'w') as f:
+    f.write(content)
+" 2>&1 >&2
+
+echo "Transcript saved: $LOG_FILE" >&2
+echo "$LOG_FILE"

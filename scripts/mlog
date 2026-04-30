@@ -1,0 +1,112 @@
+#!/bin/bash
+# mlog - Pull DJI recording, compress to MP3, transcribe to daily log
+#
+# Usage:
+#   mlog              Pull latest session from DJI recorder
+#   mlog --all        Pull all recordings from DJI recorder
+#   mlog -f <file>    Process a specific audio file
+#   mlog -f <file> --date 2026-01-15   Process with specific date
+
+set -euo pipefail
+
+SCRIPTS_DIR="$(dirname "$(readlink -f "$0")")"
+MANUAL_FILE=""
+DJI_ARGS=""
+TRANSCRIBE_ARGS=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -f) MANUAL_FILE="$2"; shift 2 ;;
+        --all) DJI_ARGS="--all"; shift ;;
+        --date) TRANSCRIBE_ARGS="$TRANSCRIBE_ARGS --date $2"; shift 2 ;;
+        *) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+done
+
+if [ -n "$MANUAL_FILE" ]; then
+    # Manual mode: compress and transcribe a specific file
+    if [ ! -f "$MANUAL_FILE" ]; then
+        echo "Error: File not found: $MANUAL_FILE"
+        exit 1
+    fi
+
+    # If no --date given in manual mode, prompt
+    if [[ "$TRANSCRIBE_ARGS" != *"--date"* ]]; then
+        current_hour=$(date +%H)
+        if [ "$current_hour" -lt 5 ]; then
+            DEFAULT_DATE=$(date -d "yesterday" +%Y-%m-%d)
+        else
+            DEFAULT_DATE=$(date +%Y-%m-%d)
+        fi
+        read -p "Date for log (YYYY-MM-DD) [$DEFAULT_DATE]: " USER_DATE
+        TRANSCRIBE_ARGS="$TRANSCRIBE_ARGS --date ${USER_DATE:-$DEFAULT_DATE}"
+    fi
+
+    echo "=== Compressing ==="
+    MP3_FILE=$("$SCRIPTS_DIR/audio-compress" "$MANUAL_FILE")
+
+    echo ""
+    echo "=== Transcribing ==="
+    LOG_FILE=$("$SCRIPTS_DIR/audio-transcribe" "$MP3_FILE" $TRANSCRIBE_ARGS)
+
+    echo ""
+    echo "Done! MP3: $MP3_FILE"
+    echo "      Log: $LOG_FILE"
+else
+    # DJI mode: pull from recorder, compress, transcribe
+    echo "=== Pulling from DJI recorder ==="
+    mapfile -t WAV_FILES < <("$SCRIPTS_DIR/dji-pull" $DJI_ARGS)
+
+    if [ ${#WAV_FILES[@]} -eq 0 ]; then
+        echo "No files pulled."
+        exit 1
+    fi
+
+    # Extract date from first WAV filename (format: DJI_XX_YYYYMMDD_HHMMSS.WAV)
+    # Only use if no explicit --date was provided
+    if [[ "$TRANSCRIBE_ARGS" != *"--date"* ]]; then
+        first_file=$(basename "${WAV_FILES[0]}")
+        # Extract 8-digit date from filename (e.g., 20260221 from DJI_26_20260221_190313.WAV)
+        if [[ $first_file =~ ([0-9]{8}) ]]; then
+            date_str="${BASH_REMATCH[1]}"
+            # Convert YYYYMMDD to YYYY-MM-DD format
+            file_date="${date_str:0:4}-${date_str:4:2}-${date_str:6:2}"
+            TRANSCRIBE_ARGS="$TRANSCRIBE_ARGS --date $file_date"
+            echo "Using recording date from filename: $file_date" >&2
+        fi
+    fi
+
+    echo ""
+    echo "=== Compressing ==="
+    MP3_FILE=$("$SCRIPTS_DIR/audio-compress" "${WAV_FILES[@]}")
+
+    echo ""
+    echo "=== Transcribing ==="
+    LOG_FILE=$("$SCRIPTS_DIR/audio-transcribe" "$MP3_FILE" $TRANSCRIBE_ARGS)
+
+    # Clean up inbox WAVs and recorder files only after successful processing
+    for wav in "${WAV_FILES[@]}"; do
+        rm -f "$wav"
+    done
+
+    # Remove source files from recorder (find by name and delete)
+    for wav in "${WAV_FILES[@]}"; do
+        filename=$(basename "$wav")
+        # Search common recorder mount points and remove the original file
+        for mount_path in /run/media/$USER /media/$USER /mnt; do
+            if [ -d "$mount_path" ]; then
+                found_file=$(find "$mount_path" -type f -name "$filename" 2>/dev/null | head -1)
+                if [ -n "$found_file" ]; then
+                    gio trash "$found_file" 2>/dev/null || rm -f "$found_file"
+                    echo "  Removed from recorder: $filename" >&2
+                    break
+                fi
+            fi
+        done
+    done
+
+    echo ""
+    echo "Done! MP3: $MP3_FILE"
+    echo "      Log: $LOG_FILE"
+fi

@@ -1,0 +1,220 @@
+#!/usr/bin/env zsh
+
+# Configuration
+REPO_PATH="${DAILY_LOG_PATH:-$HOME/github/daily_log}"
+REMINDERS_FILE="$REPO_PATH/tomorrow_reminders.md"
+
+# OS-specific adjustments
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS (BSD)
+    get_log_date() {
+        local days=${1:-0}
+        date -v-4H -v-"${days}"d +%Y-%m-%d
+    }
+    sed_i() { sed -i '' "$@"; }
+else
+    # Linux (GNU)
+    get_log_date() {
+        local days=${1:-0}
+        date -d "now - 4 hours - ${days} days" +%Y-%m-%d
+    }
+    sed_i() { sed -i "$@"; }
+fi
+
+# Function to handle errors
+error_exit() {
+    echo "Error: $1" >&2
+    exit 1
+}
+
+# Ensure the daily file exists and handle reminders
+ensure_daily_file() {
+    local file_path="$1"
+    
+    if [[ ! -f "$file_path" ]]; then
+        if [[ -z "$QUIET_MODE" ]]; then
+            echo "Journal for $(basename "$file_path") not found. Creating it..."
+        fi
+        
+        LINGERING_REMINDERS=""
+        NEW_REMINDERS=""
+
+        # Search backwards for the most recent log file (up to 30 days)
+        PREVIOUS_LOG_FILE=""
+        for i in {1..30}; do
+            CHECK_DATE=$(get_log_date "$i")
+            
+            # Check new format
+            if [[ -f "$REPO_PATH/${CHECK_DATE}_log.md" ]]; then
+                PREVIOUS_LOG_FILE="$REPO_PATH/${CHECK_DATE}_log.md"
+                break
+            fi
+            
+            # Check old format
+            if [[ -f "$REPO_PATH/${CHECK_DATE}_am.md" ]]; then
+                PREVIOUS_LOG_FILE="$REPO_PATH/${CHECK_DATE}_am.md"
+                break
+            fi
+        done
+
+        if [[ -n "$PREVIOUS_LOG_FILE" ]]; then
+            if [[ -z "$QUIET_MODE" ]]; then
+                echo "Checking for lingering reminders in $(basename "$PREVIOUS_LOG_FILE")..."
+            fi
+            
+            # Extract reminders block
+            LINGERING_REMINDERS=$(sed -n "/^# Yesterday's Reminders$/,/^---$/{ /^# Yesterday's Reminders$/d; /^---$/d; p; }" "$PREVIOUS_LOG_FILE")
+
+            # Check if non-empty (trim whitespace)
+            if [[ -n "${LINGERING_REMINDERS##*( )}" ]]; then
+                if [[ -z "$QUIET_MODE" ]]; then
+                    echo "Found lingering reminders. Moving them."
+                fi
+                
+                # Remove from previous file
+                sed_i "/^# Yesterday's Reminders$/,/^---$/d" "$PREVIOUS_LOG_FILE"
+                
+                # Stage previous file
+                git add "$PREVIOUS_LOG_FILE"
+            else
+                LINGERING_REMINDERS=""
+            fi
+        fi
+
+        # Check for new reminders from tomorrow_reminders.md
+        if [[ -f "$REMINDERS_FILE" ]]; then
+            if [[ -z "$QUIET_MODE" ]]; then
+                echo "Found new reminders file. Incorporating..."
+            fi
+            NEW_REMINDERS=$(grep -v "<!-- This is an AI managed file" "$REMINDERS_FILE")
+            rm "$REMINDERS_FILE"
+        fi
+
+        # Combine reminders
+        # Trim whitespace
+        LINGERING_REMINDERS=$(echo "$LINGERING_REMINDERS" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+        NEW_REMINDERS=$(echo "$NEW_REMINDERS" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+        ALL_REMINDERS=""
+        if [[ -n "$LINGERING_REMINDERS" ]]; then
+            ALL_REMINDERS="$LINGERING_REMINDERS"
+        fi
+
+        if [[ -n "$NEW_REMINDERS" ]]; then
+            if [[ -n "$ALL_REMINDERS" ]]; then
+                ALL_REMINDERS="$ALL_REMINDERS\n$NEW_REMINDERS"
+            else
+                ALL_REMINDERS="$NEW_REMINDERS"
+            fi
+        fi
+
+        # Write content
+        CONTENT=""
+        if [[ -n "$ALL_REMINDERS" ]]; then
+            CONTENT="# Yesterday's Reminders\n\n$ALL_REMINDERS\n\n---\n\n"
+        fi
+        
+        echo -e "$CONTENT" > "$file_path"
+    fi
+}
+
+# Main Logic
+main() {
+    # Ensure we have git
+    if ! command -v git &> /dev/null; then error_exit "git is not installed"; fi
+
+    # 0. Navigate to repo
+    cd "$REPO_PATH" || error_exit "Repository path not found: $REPO_PATH"
+
+    # 1. Sync
+    # We'll pull quietly if we have args, otherwise normally
+    if [[ $# -gt 0 ]]; then
+        QUIET_MODE=1
+        git pull -q || echo "Warning: git pull failed (offline?)" >&2
+    else
+        echo "Syncing with remote repository..."
+        git pull || echo "Warning: git pull failed. Continuing offline..."
+    fi
+
+    # 2. Determine paths/dates
+    # Using 'now - 4 hours' so 3AM counts as the previous day
+    DATE_STR=$(get_log_date)
+    FILE_PATH="$REPO_PATH/${DATE_STR}_log.md"
+
+    # 3. Ensure file exists (handles reminders migration)
+    ensure_daily_file "$FILE_PATH"
+
+    # 4. Handle Modes
+    if [[ $# -gt 0 ]]; then
+        # --- QUICK LOG MODE ---
+        TIMESTAMP=$(date +%H:%M)
+        ENTRY="$*"
+        
+        # Append to file
+        echo -e "\n### $TIMESTAMP (log)\n$ENTRY" >> "$FILE_PATH"
+        
+        # Stage current file and any other changes (like reminders removal/move)
+        git add "$FILE_PATH"
+        git add -u
+        
+        # Commit and Push
+        if git commit -m "Log: $ENTRY" -q; then
+            if git push -q; then
+                echo "Entry logged and pushed successfully."
+                rm -f "$HOME/.gemini/tmp/log_stale"
+            else
+                echo "Error: Push failed. Retrying without quiet mode..." >&2
+                git push
+            fi
+        else
+            echo "Error: Commit failed." >&2
+        fi
+        
+    else
+        # --- INTERACTIVE MODE ---
+        echo "Opening $(basename "$FILE_PATH")..."
+        ${EDITOR:-nvim} "$FILE_PATH"
+
+        # 5. Post-edit actions (Commit & Push)
+        echo ""
+        echo "--- Editing Finished ---"
+        
+        # Check for changes
+        git add "$FILE_PATH" # Stage the file we just edited
+        
+        # Also stage reminders file if it exists (in case we added one while working)
+        [[ -f "$REMINDERS_FILE" ]] && git add "$REMINDERS_FILE"
+        # Stage any removals/modifications from ensure_daily_file
+        git add -u
+        
+        if git diff --staged --quiet; then
+            echo "No changes detected to commit."
+        else
+            echo "Changes detected."
+            vared -p "Do you want to commit and push? [Y/n] " -c response
+            
+            # Default to Yes if empty
+            response=${response:-y}
+            
+            if [[ "$response" =~ ^[Yy]$ ]]; then
+                COMMIT_MSG="Add daily journal entry for $DATE_STR"
+                echo "Committing: $COMMIT_MSG"
+                git commit -m "$COMMIT_MSG"
+                
+                echo "Pushing..."
+                if git push; then
+                    echo "Successfully pushed."
+                else
+                    echo "Push failed. Please check git status."
+                fi
+            else
+                echo "Skipping commit/push."
+            fi
+        fi
+        
+        # Clear the stale lock if it exists
+        rm -f "$HOME/.gemini/tmp/log_stale"
+    fi
+}
+
+main "$@"

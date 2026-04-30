@@ -1,0 +1,69 @@
+#!/usr/bin/zsh
+
+# Resolve script directory
+SCRIPT_DIR=${0:a:h}
+export TODO_BIN=${0:a}
+
+# Source modules
+if [[ -f "$SCRIPT_DIR/lib/todo-core.zsh" ]]; then
+  source "$SCRIPT_DIR/lib/todo-core.zsh"
+else
+  echo "Error: Core module not found at $SCRIPT_DIR/lib/todo-core.zsh"
+  exit 1
+fi
+
+if [[ -f "$SCRIPT_DIR/lib/todo-ai.zsh" ]]; then
+  source "$SCRIPT_DIR/lib/todo-ai.zsh"
+else
+  echo "Error: AI module not found at $SCRIPT_DIR/lib/todo-ai.zsh"
+  exit 1
+fi
+
+if [[ -f "$SCRIPT_DIR/lib/todo-ui.zsh" ]]; then
+  source "$SCRIPT_DIR/lib/todo-ui.zsh"
+else
+  echo "Error: UI module not found at $SCRIPT_DIR/lib/todo-ui.zsh"
+  exit 1
+fi
+
+# Main logic
+case "$1" in
+  ls |"" )
+    dashboard
+    ;; 
+  _render_dashboard_view)
+    render_dashboard_view "$2"
+    ;;
+  add)
+    shift
+    add_task "$@"
+    ;; 
+  done)
+    complete_task "$2"
+    ;; 
+  edit)
+    edit_task "$2"
+    ;; 
+  ignore)
+    ignore_task "$2"
+    ;; 
+  work)
+    shift
+    work_task "$@"
+    ;; 
+  help|--help|-h)
+    echo "Usage: todo [command] [args]"
+    echo ""
+    echo "Commands:"
+    echo "  (no args)     Interactive Dashboard (TUI)"
+    echo "  add [-q]      Create new task (-q to skip editor)"
+    echo "  done <slug>   Complete task"
+    echo "  edit <slug>   Edit task"
+    echo "  ignore <slug> Ignore task for a while"
+    echo "  work <slug>   Start AI work session"
+    ;; 
+  *)
+    echo "Unknown command: $1"
+    exit 1
+    ;; 
+esac

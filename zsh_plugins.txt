@@ -1,0 +1,8 @@
+# ~/.config/zsh/.zsh_plugins.txt
+
+# Autocompletions (Load these first)
+marlonrichert/zsh-autocomplete
+zsh-users/zsh-autosuggestions
+
+# Syntax highlighting (Must be last)
+zsh-users/zsh-syntax-highlighting

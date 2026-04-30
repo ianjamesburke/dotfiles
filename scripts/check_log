@@ -1,0 +1,53 @@
+#!/usr/bin/zsh
+
+# Configuration
+REPO_PATH="$HOME/github/daily_log"
+STALE_LOCK="$HOME/.gemini/tmp/log_stale"
+# Create the parent directory for the lock file if it doesn't exist
+mkdir -p "$(dirname "$STALE_LOCK")"
+
+# Logic
+DATE_STR=$(date -d 'now - 4 hours' +%Y-%m-%d)
+FILE_PATH="$REPO_PATH/${DATE_STR}_log.md"
+
+# Function to notify
+notify_stale() {
+    # Try to find the DBus socket if likely missing (common in cron)
+    if [[ -z "$DBUS_SESSION_BUS_ADDRESS" ]]; then
+        export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
+    fi
+    
+    notify-send -u critical -t 0 "Daily Log Alert" "You haven't logged in over an hour! Please run 'log' or 'quick_log'."
+}
+
+# Check if file exists
+if [[ ! -f "$FILE_PATH" ]]; then
+    # File doesn't exist.
+    # Should we warn immediately? 
+    # If it's the start of the "day" (e.g. 4:05 AM), maybe give grace?
+    # For now, strict mode: If the file for the current "day" doesn't exist, it's stale.
+    touch "$STALE_LOCK"
+    notify_stale
+    exit 0
+fi
+
+# Check modification time
+CURRENT_TIME=$(date +%s)
+FILE_MTIME=$(stat -c %Y "$FILE_PATH")
+DIFF=$((CURRENT_TIME - FILE_MTIME))
+
+if [[ $DIFF -gt 3600 ]]; then
+    # Stale (> 1 hour)
+    if [[ ! -f "$STALE_LOCK" ]]; then
+        # Only notify if we weren't already stale (to avoid spamming every 10 mins? 
+        # Or notify every time? User said "send an alert".
+        # Let's notify every time, but maybe with a tag to replace previous notification if supported.
+        notify_stale
+    fi
+    touch "$STALE_LOCK"
+else
+    # Fresh
+    if [[ -f "$STALE_LOCK" ]]; then
+        rm "$STALE_LOCK"
+    fi
+fi

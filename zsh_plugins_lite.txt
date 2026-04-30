@@ -1,0 +1,6 @@
+# Lite plugin list (skips zsh-autocomplete for slower machines)
+
+zsh-users/zsh-autosuggestions
+
+# Syntax highlighting (Must be last)
+zsh-users/zsh-syntax-highlighting

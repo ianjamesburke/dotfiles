@@ -1,0 +1,78 @@
+#!/bin/bash
+# audio-compress - Convert audio files to normalized MP3
+#
+# Usage: audio-compress <file1.wav> [file2.wav ...]
+#   or:  audio-compress --stdin  (reads file paths from stdin, one per line)
+#
+# Multiple input files are concatenated (for split recordings).
+# Output: prints the MP3 path to stdout.
+# Loudness normalized to -10 LUFS.
+
+set -euo pipefail
+
+DEST_DIR="${MLOG_AUDIO_DIR:-$HOME/mlog_audio}"
+mkdir -p "$DEST_DIR"
+
+SOURCE_FILES=()
+
+if [[ "${1:-}" == "--stdin" ]]; then
+    while IFS= read -r line; do
+        [ -n "$line" ] && SOURCE_FILES+=("$line")
+    done
+else
+    SOURCE_FILES=("$@")
+fi
+
+if [ ${#SOURCE_FILES[@]} -eq 0 ]; then
+    echo "Usage: audio-compress <file1.wav> [file2.wav ...]" >&2
+    exit 1
+fi
+
+for f in "${SOURCE_FILES[@]}"; do
+    if [ ! -f "$f" ]; then
+        echo "Error: file not found: $f" >&2
+        exit 1
+    fi
+done
+
+# Build output filename from first file
+BASENAME=$(basename "${SOURCE_FILES[0]}")
+FILENAME="${BASENAME%.*}"
+# Remove DJI sequence suffix (e.g., _001) for cleaner output
+if [[ "$FILENAME" =~ _[0-9]{3}$ ]]; then
+    FILENAME="${FILENAME%_*}"
+fi
+
+OUTPUT_FILE="$DEST_DIR/${FILENAME}.mp3"
+
+# Avoid overwriting - add counter
+if [ -f "$OUTPUT_FILE" ]; then
+    COUNTER=2
+    while [ -f "$DEST_DIR/${FILENAME}_${COUNTER}.mp3" ]; do
+        COUNTER=$((COUNTER + 1))
+    done
+    OUTPUT_FILE="$DEST_DIR/${FILENAME}_${COUNTER}.mp3"
+fi
+
+TEMP_OUTPUT="$(mktemp "$DEST_DIR/.compress_XXXX.mp3")"
+trap 'rm -f "$TEMP_OUTPUT"' EXIT
+
+if [ "${#SOURCE_FILES[@]}" -gt 1 ]; then
+    echo "Concatenating ${#SOURCE_FILES[@]} files..." >&2
+    CONCAT_LIST="$(mktemp "$DEST_DIR/.concat_XXXX.txt")"
+    trap 'rm -f "$TEMP_OUTPUT" "$CONCAT_LIST"' EXIT
+    for f in "${SOURCE_FILES[@]}"; do
+        safe_path=$(echo "$f" | sed "s/'/'\\\\''/g")
+        echo "file '$safe_path'" >> "$CONCAT_LIST"
+    done
+    ffmpeg -y -v error -stats -f concat -safe 0 -i "$CONCAT_LIST" \
+        -af loudnorm=I=-10:TP=-1.5:LRA=11 -ar 44100 "$TEMP_OUTPUT"
+else
+    echo "Compressing $(basename "${SOURCE_FILES[0]}")..." >&2
+    ffmpeg -y -v error -stats -i "${SOURCE_FILES[0]}" \
+        -af loudnorm=I=-10:TP=-1.5:LRA=11 -ar 44100 "$TEMP_OUTPUT"
+fi
+
+mv "$TEMP_OUTPUT" "$OUTPUT_FILE"
+echo "Saved: $OUTPUT_FILE" >&2
+echo "$OUTPUT_FILE"
