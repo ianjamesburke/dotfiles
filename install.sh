@@ -20,6 +20,10 @@ if [ "$(uname)" = "Darwin" ] && ! command -v brew >/dev/null 2>&1; then
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi
 
+# Ensure Homebrew-installed tools are on PATH for this session
+[ -x /opt/homebrew/bin/brew ] && eval "$(/opt/homebrew/bin/brew shellenv)"
+[ -x /usr/local/bin/brew ] && eval "$(/usr/local/bin/brew shellenv)"
+
 # 3. Install packages
 if command -v brew >/dev/null 2>&1; then
   echo "Installing packages from Brewfile..."
