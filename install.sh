@@ -34,9 +34,13 @@ else
 fi
 
 # 4. Generate antidote plugin bundle
-if command -v antidote >/dev/null 2>&1; then
+BREW_PREFIX=""
+[ -x /opt/homebrew/bin/brew ] && BREW_PREFIX=$(/opt/homebrew/bin/brew --prefix)
+[ -x /usr/local/bin/brew ]    && BREW_PREFIX=$(/usr/local/bin/brew --prefix)
+ANTIDOTE_ZSH="${BREW_PREFIX}/share/antidote/antidote.zsh"
+if [ -f "$ANTIDOTE_ZSH" ]; then
   echo "Generating zsh plugin bundle..."
-  antidote bundle < "$DOTFILES/zsh_plugins.txt" > "$DOTFILES/zsh_plugins.zsh"
+  zsh -c "source '$ANTIDOTE_ZSH' && antidote bundle < '$DOTFILES/zsh_plugins.txt' > '$DOTFILES/zsh_plugins.zsh'"
 fi
 
 # 5. Wire up ~/.zshrc
