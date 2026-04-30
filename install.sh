@@ -29,7 +29,13 @@ else
   echo "Install antidote manually: https://getantidote.github.io"
 fi
 
-# 4. Wire up ~/.zshrc
+# 4. Generate antidote plugin bundle
+if command -v antidote >/dev/null 2>&1; then
+  echo "Generating zsh plugin bundle..."
+  antidote bundle < "$DOTFILES/zsh_plugins.txt" > "$DOTFILES/zsh_plugins.zsh"
+fi
+
+# 5. Wire up ~/.zshrc
 ZSHRC="$HOME/.zshrc"
 if grep -qF "dotfiles/zshrc" "$ZSHRC" 2>/dev/null; then
   echo "~/.zshrc already sources dotfiles — skipping."
@@ -41,4 +47,4 @@ else
 fi
 
 echo ""
-echo "Done. Open a new shell or run: source ~/.zshrc"
+echo "Done. Open a new terminal or run: source ~/.zshrc"
