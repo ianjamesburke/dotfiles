@@ -141,7 +141,7 @@ alias dotconfig="nvim $DOTFILES/zshrc"
 alias nvimconfig='nvim ~/.config/nvim/init.lua'
 alias n='nvim .'
 alias k='kiro .'
-alias ls='exa -l --icons --git --header --group-directories-first'
+alias ls='eza -l --icons --git --header --group-directories-first'
 alias files='spf'
 alias c='claude --dangerously-skip-permissions --allow-dangerously-skip-permissions'
 alias cs='claude --model haiku --dangerously-skip-permissions --allow-dangerously-skip-permissions'
@@ -882,4 +882,4 @@ _cont_complete() {
 compdef _cont_complete cont
 
 # Parallax CLI tab completion
-source ~/.cache/zsh/parallax-completion.zsh
+[[ -f ~/.cache/zsh/parallax-completion.zsh ]] && source ~/.cache/zsh/parallax-completion.zsh
