@@ -1,0 +1,4 @@
+#!/bin/bash
+cd ~/.claude
+git add CLAUDE.md rules/ hooks/ settings.json commands/
+git diff --quiet HEAD 2>/dev/null || git commit -m "auto: snapshot $(date '+%Y-%m-%d')"
