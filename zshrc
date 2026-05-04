@@ -143,10 +143,9 @@ alias n='nvim .'
 alias k='kiro .'
 alias ls='eza -l --icons --git --header --group-directories-first'
 alias files='spf'
-alias c='claude --dangerously-skip-permissions --allow-dangerously-skip-permissions'
-alias cs='claude --model haiku --dangerously-skip-permissions --allow-dangerously-skip-permissions'
-alias cm='claude --model sonnet --dangerously-skip-permissions --allow-dangerously-skip-permissions'
-alias cl='claude --model opus --dangerously-skip-permissions --allow-dangerously-skip-permissions'
+alias c='IS_DEMO=1 claude --model sonnet --dangerously-skip-permissions --allow-dangerously-skip-permissions'
+alias cs='IS_DEMO=1 claude --model haiku --dangerously-skip-permissions --allow-dangerously-skip-permissions'
+alias cl='IS_DEMO=1 claude --model claude-opus-4-6 --dangerously-skip-permissions --allow-dangerously-skip-permissions'
 if [[ "$IS_MACOS" == "true" ]]; then
   alias p='pbpaste'
 elif [[ "$IS_LINUX" == "true" ]]; then
@@ -178,11 +177,22 @@ alias x='clear'
 alias py='python3'
 alias ..='cd ..'
 alias ...='cd ../..'
-alias reload='source ~/.zshrc'
+alias reload='exec zsh'
 
 alias oc='opencode'
 
-alias jc='just --choose'
+alias jp='just --choose'
+
+# Run a just recipe; on failure, open Claude Code with full error context for fixing.
+jc() {
+  local output exit_code
+  output=$(just "$@" 2>&1)
+  exit_code=$?
+  printf '%s\n' "$output"
+  if [[ $exit_code -ne 0 ]]; then
+    claude "Command 'just $*' failed with exit $exit_code:\n\n$output\n\nFix it."
+  fi
+}
 if [[ "$IS_MACOS" == "true" ]]; then
   alias procs='ps -u $USER -o pid,pcpu,pmem,stat,start,command | (read h; echo "$h"; sort -k2 -rn) | awk "NR==1 || (\$2>0 || \$3>0)"'
 elif [[ "$IS_LINUX" == "true" ]]; then
@@ -210,33 +220,112 @@ alias go='git open'
 gs() {
   git rev-parse --git-dir &>/dev/null || { echo "not a git repo"; return 1; }
 
+  local reset=$'\033[0m'   bold=$'\033[1m'     dim=$'\033[2m'
+  local gray=$'\033[90m'   cyan=$'\033[36m'    magenta=$'\033[35m'
+  local green=$'\033[32m'  yellow=$'\033[33m'  red=$'\033[31m'
+  local b_cyan=$'\033[1;36m'  b_green=$'\033[1;32m'  b_yellow=$'\033[1;33m'
+  local b_red=$'\033[1;31m'   b_magenta=$'\033[1;35m'
+
+  local n=1
+  [[ "$1" =~ ^[0-9]+$ ]] && n=$1
+
   local branch=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --short HEAD)
   local upstream=$(git rev-parse --abbrev-ref "@{upstream}" 2>/dev/null)
-  local tracking=""
+
+  local sync_label="" sync_color=""
   if [[ -n "$upstream" ]]; then
     local ahead=$(git rev-list --count "@{upstream}..HEAD" 2>/dev/null)
     local behind=$(git rev-list --count "HEAD..@{upstream}" 2>/dev/null)
-    [[ $ahead -gt 0 ]] && tracking+=" ↑${ahead}"
-    [[ $behind -gt 0 ]] && tracking+=" ↓${behind}"
-    [[ -z "$tracking" ]] && tracking=" ✓"
-    tracking+=" vs ${upstream}"
+    if [[ $ahead -gt 0 && $behind -gt 0 ]]; then
+      sync_label=" ↑${ahead} ↓${behind}"; sync_color="$b_yellow"
+    elif [[ $ahead -gt 0 ]]; then
+      sync_label=" ↑${ahead}";            sync_color="$yellow"
+    elif [[ $behind -gt 0 ]]; then
+      sync_label=" ↓${behind}";           sync_color="$b_red"
+    else
+      sync_label=" ✓";                    sync_color="$b_green"
+    fi
   fi
 
-  local hash=$(git log -1 --format="%h" 2>/dev/null)
-  local msg=$(git log -1 --format="%s" 2>/dev/null)
-  local rel=$(git log -1 --format="%cr" 2>/dev/null)
-  local abs=$(git log -1 --format="%ci" 2>/dev/null | cut -d' ' -f1,2 | cut -d: -f1,2)
+  local total=$(git rev-list --count HEAD 2>/dev/null)
+  local commits
+  commits=$(git log -${n} --format="%h%x1f%s%x1f%cr%x1f%ci" 2>/dev/null)
 
   echo ""
-  echo "  branch: ${branch}${tracking}"
+  printf "  ${gray}branch${reset}  ${b_cyan}%s${reset}${sync_color}%s${reset}${gray}%s${reset}\n" \
+    "$branch" "$sync_label" "${upstream:+  vs $upstream}"
+
+  local i=0
+  while IFS=$'\x1f' read -r hash msg rel abs_raw; do
+    printf "  ${gray}commit${reset}  ${b_magenta}#%s${reset}  ${magenta}%s${reset}  %s\n" \
+      "$(( total - i ))" "$hash" "$msg"
+    printf "          ${gray}%s · %s${reset}\n" "$rel" "${abs_raw%:*}"
+    (( i++ )) || true
+  done <<< "$commits"
+
+  local status_lines
+  status_lines=$(git status --short 2>/dev/null)
+  [[ -z "$status_lines" ]] && { echo ""; return; }
+
+  _gs_mini_diff() {
+    local diff_raw="$1"
+    local count
+    count=$(printf '%s\n' "$diff_raw" | grep -E '^[+-]' | grep -cvE '^(\+\+\+|---)' || true)
+    [[ $count -eq 0 || $count -gt 10 ]] && return
+    while IFS= read -r dline; do
+      case "$dline" in
+        diff\ --git*) printf "    ${gray}╌ %s${reset}\n" "${dline##* b/}" ;;
+        +++*|---*|@@*|index*|Binary*) ;;
+        +*) printf "    ${b_green}+${reset} ${green}%s${reset}\n" "${dline:1}" ;;
+        -*) printf "    ${b_red}-${reset} ${red}%s${reset}\n"  "${dline:1}" ;;
+      esac
+    done <<< "$diff_raw"
+  }
+
   echo ""
-  echo "  last:   ${hash} — ${msg}"
-  echo "          ${rel} (${abs})"
-  echo ""
-  git status --short | sed 's/^/  /'
+  while IFS= read -r line; do
+    local x="${line:0:1}" y="${line:1:1}" file="${line:3}"
+    local xc="" yc=""
+
+    if [[ "$x" == "?" && "$y" == "?" ]]; then
+      printf "  ${red}??${reset}  ${red}%s${reset}\n" "$file"
+      continue
+    fi
+
+    case "$x" in
+      A) xc="$b_green"  ;;
+      M) xc="$b_green"  ;;
+      D) xc="$b_red"    ;;
+      R) xc="$b_cyan"   ;;
+      C) xc="$b_cyan"   ;;
+      " ") xc="$gray"   ;;
+      *) xc="$reset"    ;;
+    esac
+    case "$y" in
+      M) yc="$b_yellow" ;;
+      D) yc="$b_red"    ;;
+      " ") yc="$gray"   ;;
+      *) yc="$reset"    ;;
+    esac
+
+    printf "  ${xc}%s${reset}${yc}%s${reset}  %s\n" "$x" "$y" "$file"
+
+    # Inline diff for this file if changes are small
+    local fname="${file%% ->*}"  # handle renames: take left side
+    [[ "$y" == "M" || "$y" == "D" ]] && _gs_mini_diff "$(git diff --unified=0 --no-color -- "$fname" 2>/dev/null)"
+    [[ "$x" == "M" || "$x" == "A" || "$x" == "R" ]] && _gs_mini_diff "$(git diff --cached --unified=0 --no-color -- "$fname" 2>/dev/null)"
+  done <<< "$status_lines"
+
   echo ""
 }
 alias gp='git pull'
+gd() {
+  if [[ $# -eq 0 ]]; then
+    read -q "REPLY?discard all unstaged changes? [y/N] " && echo && git restore . && gs || echo ""
+  else
+    git restore "$@" && gs
+  fi
+}
 
 # cat wrapper — markdown → glow, everything else → bat
 # cat -50 file.md reads first 50 lines through glow
