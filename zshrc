@@ -667,7 +667,13 @@ autoload -Uz add-zsh-hook
 # ------------------------------------------------------------------------------
 add-zsh-hook precmd _title_precmd
 add-zsh-hook preexec _title_preexec
-chpwd_ls() { ls }
+chpwd_ls() {
+  if git rev-parse --git-dir &>/dev/null 2>&1; then
+    gs
+  else
+    eza -l --icons --git --color=always -s modified --reverse | head -5
+  fi
+}
 autoload -Uz add-zsh-hook
 add-zsh-hook chpwd chpwd_ls
 
