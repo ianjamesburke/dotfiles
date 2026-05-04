@@ -181,7 +181,7 @@ alias reload='exec zsh'
 
 alias oc='opencode'
 
-alias jp='just --choose'
+alias jj='just --choose'
 
 # Run a just recipe; on failure, open Claude Code with full error context for fixing.
 jc() {
