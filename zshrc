@@ -978,3 +978,13 @@ compdef _cont_complete cont
 
 # Parallax CLI tab completion
 [[ -f ~/.cache/zsh/parallax-completion.zsh ]] && source ~/.cache/zsh/parallax-completion.zsh
+
+# Route `plexi` to the channel-specific binary when running inside a Plexi pane.
+# PLEXI_CHANNEL is injected by the host at PTY spawn time (e.g. "alpha", "pr-355").
+plexi() {
+  if [[ -n "$PLEXI_CHANNEL" ]]; then
+    "plexi-$PLEXI_CHANNEL" "$@"
+  else
+    command plexi "$@"
+  fi
+}
