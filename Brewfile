@@ -8,12 +8,18 @@ brew "fzf"
 brew "gh"
 brew "git"
 brew "glow"
+brew "jq"
 brew "just"
 brew "lazygit"
 brew "mise"
 brew "neovim"
 brew "task"
+brew "trash"
 brew "zoxide"
+
+# Worktree workflow (tap: satococoa/tap)
+tap "satococoa/tap"
+brew "satococoa/tap/wtp"
 
 # Media
 brew "ffmpeg"

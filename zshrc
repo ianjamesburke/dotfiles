@@ -699,7 +699,11 @@ chpwd_ls() {
   if git rev-parse --git-dir &>/dev/null 2>&1; then
     gs
   else
+    local total=$(eza -1 | wc -l | tr -d ' ')
     eza -l --icons --git --color=always -s modified --reverse | head -5
+    if (( total > 5 )); then
+      echo "  … and $((total - 5)) more"
+    fi
   fi
 }
 autoload -Uz add-zsh-hook
