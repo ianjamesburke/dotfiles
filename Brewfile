@@ -1,4 +1,5 @@
 # Core shell tools
+brew "bash"
 brew "antidote"
 brew "bat"
 brew "eza"

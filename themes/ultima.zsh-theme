@@ -122,7 +122,7 @@ prepareGitStatusLine() {
 
 # PS1 arrow - green # PS2 arrow - cyan # PS3 arrow - white
 
-PROMPT="%F{black}${char_up_and_right_divider} ${ssh_marker}%f%F{cyan}%~%f$(prepareGitStatusLine)
+PROMPT="%F{black}${char_up_and_right_divider} ${ssh_marker}%f%F{cyan}%~%f$(prepareGitStatusLine)\${_git_ver}
 %F{green} ${char_arrow}%f "
 
 RPROMPT=""
@@ -144,6 +144,15 @@ precmd() {
   if [[ $VCS != "" ]]; then
     vcs_info
   fi
+  local ver
+  if [[ -f Cargo.toml ]]; then
+    ver=$(grep '^version' Cargo.toml 2>/dev/null | head -1 | sed 's/version = "\(.*\)"/v\1/')
+  elif [[ -f pyproject.toml ]]; then
+    ver=$(grep '^version' pyproject.toml 2>/dev/null | head -1 | sed 's/version = "\(.*\)"/v\1/')
+  elif [[ -f package.json ]]; then
+    ver=$(grep '"version"' package.json 2>/dev/null | head -1 | sed 's/.*"version": "\(.*\)".*/v\1/')
+  fi
+  _git_ver=${ver:+" %F{black}${char_arrow} %f%F{yellow}${ver}%f"}
   # printPsOneLimiter
 }
 

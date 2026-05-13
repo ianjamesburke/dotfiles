@@ -18,6 +18,7 @@ fi
 export PROMPT_EOL_MARK=""
 export GH_NO_UPDATE_NOTIFIER=1
 export DOTFILES="$HOME/dotfiles"
+export PATH="/opt/homebrew/opt/trash/bin:$PATH"
 export PATH="/opt/homebrew/opt/python@3.13/bin:$PATH"
 alias python='python3'
 export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:$PATH"
@@ -153,6 +154,25 @@ elif [[ "$IS_LINUX" == "true" ]]; then
 fi
 
 # Re-run last command and copy a capsule: timestamp, dir, command, output
+# Safety: route rm through trash; block nukes
+rm() {
+  local args=("$@")
+  for arg in "${args[@]}"; do
+    local expanded="${arg/#\~/$HOME}"
+    if [[ "$expanded" == "$HOME" || "$expanded" == "/" ]]; then
+      echo "🚫 Blocked: rm on $arg is not allowed. Use trash directly if you're sure." >&2
+      return 1
+    fi
+  done
+  # Block -rf / -fr on home/root even when flags and path are separate args
+  local joined="${args[*]}"
+  if [[ "$joined" =~ -[rf]{2} ]] && [[ "$joined" =~ (~|$HOME|\" \"|^[[:space:]]*/[[:space:]]*$) ]]; then
+    echo "🚫 Blocked: rm -rf on home or root is not allowed." >&2
+    return 1
+  fi
+  trash "${args[@]}"
+}
+
 alias cap='capsule'
 capsule() {
   local cmd="$(fc -ln -1)"
@@ -344,14 +364,22 @@ cat() {
     fi
   done
   local use_glow=0
+  local use_mermaid=0
   for f in "${files[@]}"; do
     [[ "$f" == *.md || "$f" == *.markdown ]] && use_glow=1 && break
+    [[ "$f" == *.mmd ]] && use_mermaid=1 && break
   done
   if [[ $use_glow -eq 1 ]]; then
     if [[ -n "$lines" ]]; then
       head -"$lines" "${files[@]}" | glow -
     else
-      glow "${files[@]}"
+      glow -p "${files[@]}"
+    fi
+  elif [[ $use_mermaid -eq 1 ]]; then
+    if [[ -n "$lines" ]]; then
+      head -"$lines" "${files[@]}" | mermaid-ascii -f -
+    else
+      mermaid-ascii -f "${files[1]}"
     fi
   else
     if [[ -n "$lines" ]]; then
@@ -629,7 +657,7 @@ bindkey '^E' autosuggest-accept       # Ctrl + E: Accept full suggestion
 # ------------------------------------------------------------------------------
 # ZSH COMPLETION CONFIGURATION
 # ------------------------------------------------------------------------------
-LISTMAX=500
+LISTMAX=0
 zstyle ':completion:*' menu select
 zstyle ':completion:*' file-sort modification
 zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
@@ -702,241 +730,6 @@ fi
 [[ -f "$HOME/.local/bin/env" ]] && . "$HOME/.local/bin/env"
 
 # ------------------------------------------------------------------------------
-# PLEXI ISSUE WORKFLOW
-# plexi-work <issue>  — fetch issue, create worktree, start Claude
-# plexi-pr            — conflict-check, open PR, watch for reviews in background
-# ------------------------------------------------------------------------------
-
-plexi-work() {
-  local issue_number=$1
-  [[ -z "$issue_number" ]] && { echo "Usage: plexi-work <issue-number>"; return 1; }
-
-  # Repo context comes from CWD — must be run from inside the target repo.
-  # Use worktree list to get the real repo root; --show-toplevel returns the
-  # worktree's own directory when called from a linked worktree (e.g. worktrees/alpha).
-  local repo_root
-  repo_root=$(git worktree list --porcelain 2>/dev/null | awk 'NR==1{print $2}') || true
-  [[ -z "$repo_root" ]] && { echo "❌ not in a git repo — cd into the repo first"; return 1; }
-
-  # gh detects the repo from the git remote automatically (no --repo flag needed)
-  echo "→ fetching issue #${issue_number}..."
-  local issue_json
-  issue_json=$(gh issue view "$issue_number" --json number,title,body 2>&1) || {
-    echo "❌ gh error: $issue_json"; return 1
-  }
-  local title body
-  title=$(echo "$issue_json" | jq -r '.title')
-  body=$(echo "$issue_json"  | jq -r '.body // "(no body)"')
-
-  # Build branch name from slugified title
-  local slug branch
-  slug=$(echo "$title" | tr '[:upper:]' '[:lower:]' | \
-    sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//' | sed 's/-$//' | cut -c1-40)
-  branch="feature/${issue_number}-${slug}"
-
-  # Find farthest-along branch: alpha > beta > main/master
-  local base_branch base_wt
-  if git ls-remote --exit-code --heads origin alpha &>/dev/null; then
-    base_branch="alpha"
-  elif git ls-remote --exit-code --heads origin beta &>/dev/null; then
-    base_branch="beta"
-  else
-    base_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
-    base_branch="${base_branch:-main}"
-  fi
-
-  # Find the local worktree that has base_branch checked out
-  base_wt=$(git worktree list --porcelain | awk -v b="refs/heads/$base_branch" \
-    '/^worktree /{wt=$2} $0=="branch " b {print wt; exit}')
-  if [[ -z "$base_wt" ]]; then
-    echo "❌ no local worktree found for branch '$base_branch' — check out $base_branch first"
-    return 1
-  fi
-
-  echo "→ creating worktree from $base_branch: $branch"
-  (cd "$base_wt" && wtp add -b "$branch") || return 1
-
-  local worktree_path="$repo_root/worktrees/$branch"
-
-  # Detect available test/build targets from Justfile
-  local test_section=""
-  local justfile=""
-  [[ -f "$repo_root/Justfile"  ]] && justfile="$repo_root/Justfile"
-  [[ -f "$repo_root/justfile"  ]] && justfile="$repo_root/justfile"
-  if [[ -n "$justfile" ]]; then
-    local targets
-    targets=$(just --justfile "$justfile" --list --unsorted 2>/dev/null | awk 'NR>1{print $1}')
-    local checks=()
-    echo "$targets" | grep -qx "build"  && checks+=("just build")
-    echo "$targets" | grep -qx "test"   && checks+=("just test")
-    echo "$targets" | grep -qx "check"  && checks+=("just check")
-    echo "$targets" | grep -qx "lint"   && checks+=("just lint")
-    if (( ${#checks[@]} > 0 )); then
-      test_section="\n## Before submitting\nRun these in order — all must pass:\n"
-      for cmd in "${checks[@]}"; do
-        test_section+="- \`$cmd\`\n"
-      done
-    else
-      test_section="\n## Before submitting\nCheck \`just --list\` for any test/build targets and run them.\n"
-    fi
-  elif [[ -f "$repo_root/package.json" ]]; then
-    test_section="\n## Before submitting\n- \`npm test\` — must pass\n"
-  fi
-
-  # Write issue context — Claude reads this, no second fetch needed
-  printf "# Issue #%s: %s\n\n%s%b\n" \
-    "$issue_number" "$title" "$body" "$test_section" \
-    > "$worktree_path/.claude-issue.md"
-
-  cd "$worktree_path"
-  print -P "\n%F{cyan}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%f"
-  print -P "%F{cyan}  Issue #${issue_number}:%f ${title}"
-  print -P "%F{cyan}  Branch:%f ${branch}"
-  print -P "%F{cyan}  Context:%f .claude-issue.md (issue + test checklist)"
-  print -P "%F{cyan}  Done?%f run plexi-pr"
-  print -P "%F{cyan}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━%f\n"
-
-  claude
-}
-
-plexi-pr() {
-  local branch repo_root base_branch
-  branch=$(git branch --show-current)
-  repo_root=$(git worktree list --porcelain 2>/dev/null | awk 'NR==1{print $2}')
-  [[ -z "$branch" || "$branch" == "main" || "$branch" == "master" ]] && {
-    echo "❌ run from inside a feature worktree"; return 1
-  }
-
-  # Detect base branch: use alpha if it exists, else main/master
-  if git -C "$repo_root" rev-parse --verify origin/alpha &>/dev/null; then
-    base_branch="alpha"
-  else
-    base_branch=$(git -C "$repo_root" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
-    base_branch="${base_branch:-main}"
-  fi
-
-  # Must be clean before we poke the index
-  [[ -n "$(git status --porcelain)" ]] && {
-    echo "❌ uncommitted changes — commit first"; return 1
-  }
-
-  # Conflict pre-check: merge base into branch index, abort immediately
-  echo "→ conflict check vs ${base_branch}..."
-  git fetch origin "$base_branch" &>/dev/null
-  if git merge --no-commit --no-ff FETCH_HEAD &>/dev/null; then
-    git merge --abort &>/dev/null || git reset --merge &>/dev/null || true
-    echo "✓ clean"
-  else
-    git merge --abort &>/dev/null || git reset --merge &>/dev/null || true
-    echo "❌ conflicts with ${base_branch} — resolve before opening PR"; return 1
-  fi
-
-  # Infer PR title from context file written by plexi-work, or gh
-  local issue_number pr_title pr_body
-  issue_number=$(echo "$branch" | grep -oE '[0-9]+' | head -1)
-  if [[ -f .claude-issue.md ]]; then
-    pr_title=$(head -1 .claude-issue.md | sed 's/^# Issue [0-9]*: //')
-  elif [[ -n "$issue_number" ]]; then
-    pr_title=$(gh issue view "$issue_number" --json title -q '.title' 2>/dev/null || echo "$branch")
-  else
-    pr_title="$branch"
-  fi
-  pr_body=${issue_number:+"Closes #${issue_number}"}
-
-  echo "→ opening PR: $pr_title"
-  local pr_url pr_number
-  pr_url=$(gh pr create --base "$base_branch" \
-    --title "$pr_title" \
-    --body "${pr_body:-}" 2>&1) || { echo "❌ $pr_url"; return 1 }
-  pr_number=$(echo "$pr_url" | grep -oE '[0-9]+$')
-  echo "✓ PR #${pr_number}: $pr_url"
-
-  # Background watcher: 5 attempts × 90s = 7.5 min max
-  local log="$TMPDIR/plexi-pr-${pr_number}.log"
-  echo "→ review watcher running in background (log: $log)"
-  _plexi_watch_reviews "$pr_number" "$branch" "$base_branch" "$repo_root" "$log" &
-  disown
-}
-
-# Background: poll for reviews, auto-approve if clean, else notify user
-_plexi_watch_reviews() {
-  local pr_number=$1 branch=$2 base_branch=$3 repo_root=$4 log=$5
-  local tries=0
-
-  while (( tries < 5 )); do
-    sleep 90
-    (( tries++ ))
-
-    local count
-    count=$(gh pr view "$pr_number" --json reviews --jq '.reviews | length' 2>/dev/null || echo 0)
-    echo "[$(date +%H:%M:%S)] attempt ${tries}/5 — ${count} review(s)" >> "$log"
-    (( count == 0 )) && continue
-
-    # Check for blocking keywords across review bodies and inline comments
-    local text
-    text=$(gh pr view "$pr_number" --json reviews,comments \
-      --jq '([.reviews[].body] + [.comments[].body]) | join("\n")' 2>/dev/null)
-
-    if echo "$text" | grep -iqE 'critical|blocking|must.?fix|security|vulnerability'; then
-      echo "[$(date +%H:%M:%S)] HIGH SEVERITY — manual review required" >> "$log"
-      osascript -e "display notification \"PR #${pr_number}: high-severity issues — review required\" with title \"plexi ⚠️\"" &>/dev/null
-      return 1
-    fi
-
-    echo "[$(date +%H:%M:%S)] no blocking issues — auto-approving" >> "$log"
-    gh pr review "$pr_number" --approve \
-      --body "Auto-approved: no blocking issues found in reviews." >> "$log" 2>&1
-
-    _plexi_merge "$pr_number" "$branch" "$base_branch" "$repo_root" >> "$log" 2>&1
-    osascript -e "display notification \"PR #${pr_number} merged and cleaned up\" with title \"plexi ✅\"" &>/dev/null
-    return 0
-  done
-
-  echo "[$(date +%H:%M:%S)] no reviews after 5 attempts — PR left open" >> "$log"
-  osascript -e "display notification \"PR #${pr_number}: no reviews after 7.5min — left open\" with title \"plexi ⏰\"" &>/dev/null
-}
-
-# Final conflict check → squash merge → install → cleanup
-_plexi_merge() {
-  local pr_number=$1 branch=$2 base_branch=$3 repo_root=$4
-
-  # Find the primary worktree (first in list = the main checkout)
-  local primary_wt
-  primary_wt=$(git -C "$repo_root" worktree list --porcelain | awk '/^worktree /{print $2; exit}')
-
-  git -C "$primary_wt" fetch origin "$base_branch" &>/dev/null
-  if ! git -C "$primary_wt" merge --no-commit --no-ff "origin/$base_branch" &>/dev/null; then
-    git -C "$primary_wt" merge --abort &>/dev/null || git -C "$primary_wt" reset --merge &>/dev/null || true
-    echo "❌ new conflicts with ${base_branch} — merge blocked"; return 1
-  fi
-  git -C "$primary_wt" merge --abort &>/dev/null || git -C "$primary_wt" reset --merge &>/dev/null || true
-
-  gh pr merge "$pr_number" --squash || return 1
-  git -C "$primary_wt" pull || return 1
-
-  # Run install if a matching just target exists
-  local justfile=""
-  [[ -f "$repo_root/Justfile" ]] && justfile="$repo_root/Justfile"
-  [[ -f "$repo_root/justfile" ]] && justfile="$repo_root/justfile"
-  if [[ -n "$justfile" ]]; then
-    local targets
-    targets=$(just --justfile "$justfile" --list --unsorted 2>/dev/null | awk 'NR>1{print $1}')
-    if echo "$targets" | grep -qx "install-${base_branch}"; then
-      (cd "$primary_wt" && just "install-${base_branch}") || return 1
-    elif echo "$targets" | grep -qx "install"; then
-      (cd "$primary_wt" && just install) || return 1
-    fi
-  fi
-
-  # Remove worktree and remote branch
-  local wt_path="$repo_root/worktrees/$branch"
-  git -C "$primary_wt" worktree remove "$wt_path" --force &>/dev/null || true
-  git push origin --delete "$branch" &>/dev/null || true
-
-  echo "[$(date +%H:%M:%S)] done — PR #${pr_number} merged, branch cleaned up"
-}
-
-# ------------------------------------------------------------------------------
 # CONT — Isolated worktree manager
 # Creates a git worktree + branch per label, symlinks .env.<label> into it.
 # Usage: cont <label>   → create (if needed) and cd into worktree
@@ -978,13 +771,3 @@ compdef _cont_complete cont
 
 # Parallax CLI tab completion
 [[ -f ~/.cache/zsh/parallax-completion.zsh ]] && source ~/.cache/zsh/parallax-completion.zsh
-
-# Route `plexi` to the channel-specific binary when running inside a Plexi pane.
-# PLEXI_CHANNEL is injected by the host at PTY spawn time (e.g. "alpha", "pr-355").
-plexi() {
-  if [[ -n "$PLEXI_CHANNEL" ]]; then
-    "plexi-$PLEXI_CHANNEL" "$@"
-  else
-    command plexi "$@"
-  fi
-}
