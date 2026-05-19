@@ -36,10 +36,9 @@ This will:
 
 Put overrides, secrets, and machine-specific `PATH` additions in `~/.zshrc` *after* the source line. Keep `~/.zsh_secrets` (gitignored) for API keys and tokens.
 
-## Neovim sync
+## Viewing hidden files
 
-To pull nvim config from another machine:
+Dotfiles start with `.` and are hidden by default.
 
-```sh
-./scripts/sync-nvim.sh <user@host>
-```
+- **Terminal:** `ls -a` shows hidden files and folders in any directory.
+- **Finder:** Press `Shift-Cmd-.` to toggle hidden file visibility.
