@@ -142,7 +142,8 @@ alias dotconfig="nvim $DOTFILES/zshrc"
 alias nvimconfig='nvim ~/.config/nvim/init.lua'
 alias n='nvim .'
 alias k='kiro .'
-alias ls='eza -l --icons --git --header --group-directories-first'
+alias ls='eza -l --icons --git --header --group-directories-first --color=always'
+alias grep='grep --color=always'
 alias files='spf'
 alias c='IS_DEMO=1 claude --model sonnet --dangerously-skip-permissions --allow-dangerously-skip-permissions'
 alias cs='IS_DEMO=1 claude --model haiku --dangerously-skip-permissions --allow-dangerously-skip-permissions'
@@ -341,9 +342,13 @@ gs() {
 alias gp='git pull'
 gd() {
   if [[ $# -eq 0 ]]; then
-    read -q "REPLY?discard all unstaged changes? [y/N] " && echo && git restore . && gs || echo ""
+    read -q "REPLY?discard all unstaged + untracked? [y/N] " && echo && git restore . && git clean -fd && gs || echo ""
   else
-    git restore "$@" && gs
+    if git ls-files --error-unmatch "$@" &>/dev/null; then
+      git restore "$@" && gs
+    else
+      rm -rf "$@" && gs
+    fi
   fi
 }
 
@@ -708,6 +713,8 @@ chpwd_ls() {
 }
 autoload -Uz add-zsh-hook
 add-zsh-hook chpwd chpwd_ls
+
+export VIRTUAL_ENV_DISABLE_PROMPT=1
 
 auto_activate_venv() {
   if [[ -f .venv/bin/activate ]]; then

@@ -1,0 +1,23 @@
+#!/bin/bash
+set -euo pipefail
+
+REPO="/Users/ianburke/Documents/GitHub/PLEXI"
+SWEEP="$HOME/.cargo/bin/cargo-sweep"
+
+if [[ ! -x "$SWEEP" ]]; then
+  echo "cargo-sweep not found at $SWEEP, skipping" >&2
+  exit 0
+fi
+
+# Root alpha target — keep at 20 GB
+cd "$REPO"
+"$SWEEP" sweep --maxsize 20GB
+
+# Feature worktree targets — keep each at 3 GB
+for wt in "$REPO"/worktrees/feature/*/; do
+  [[ -f "$wt/Cargo.toml" ]] || continue
+  cd "$wt"
+  "$SWEEP" sweep --maxsize 3GB
+done
+
+echo "plexi-cargo-sweep done at $(date)"

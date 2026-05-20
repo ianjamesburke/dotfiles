@@ -33,15 +33,15 @@ char_vertical_divider="─"                                       #Unicode: \u25
 export VCS="git"
 
 current_vcs="\":vcs_info:*\" enable $VCS"
-char_badge="%F{black} on %f%F{black}${char_arrow}%f"
-vc_branch_name="%F{green}%b%f"
+char_badge="%F{60} on %f%F{60}${char_arrow}%f"
+vc_branch_name="%F{75}%b%f"
 
-vc_action="%F{black}%a %f%F{black}${char_arrow}%f"
+vc_action="%F{60}%a %f%F{60}${char_arrow}%f"
 vc_unstaged_status="%F{cyan} M ${char_arrow}%f"
 
 vc_git_staged_status="%F{green} A ${char_arrow}%f"
-vc_git_hash="%F{green}%6.6i%f %F{black}${char_arrow}%f"
-vc_git_untracked_status="%F{blue} U ${char_arrow}%f"
+vc_git_hash="%F{75}%6.6i%f %F{60}${char_arrow}%f"
+vc_git_untracked_status="%F{33} U ${char_arrow}%f"
 
 if [[ $VCS != "" ]]; then
   autoload -Uz vcs_info
@@ -122,8 +122,8 @@ prepareGitStatusLine() {
 
 # PS1 arrow - green # PS2 arrow - cyan # PS3 arrow - white
 
-PROMPT="%F{black}${char_up_and_right_divider} ${ssh_marker}%f%F{cyan}%~%f$(prepareGitStatusLine)\${_git_ver}
-%F{green} ${char_arrow}%f "
+PROMPT="\${_venv_prompt}%F{60}${char_up_and_right_divider} ${ssh_marker}%f%F{cyan}%~%f$(prepareGitStatusLine)\${_git_ver}
+%F{75} ${char_arrow}%f "
 
 RPROMPT=""
 
@@ -146,13 +146,20 @@ precmd() {
   fi
   local ver
   if [[ -f Cargo.toml ]]; then
-    ver=$(grep '^version' Cargo.toml 2>/dev/null | head -1 | sed 's/version = "\(.*\)"/v\1/')
+    ver=$(grep '^version' Cargo.toml 2>/dev/null | head -1 | sed $'s/\033\\[[0-9;]*[a-zA-Z]//g' | sed 's/version = "\(.*\)"/v\1/')
   elif [[ -f pyproject.toml ]]; then
-    ver=$(grep '^version' pyproject.toml 2>/dev/null | head -1 | sed 's/version = "\(.*\)"/v\1/')
+    ver=$(grep '^version' pyproject.toml 2>/dev/null | head -1 | sed $'s/\033\\[[0-9;]*[a-zA-Z]//g' | sed 's/version = "\(.*\)"/v\1/')
   elif [[ -f package.json ]]; then
-    ver=$(grep '"version"' package.json 2>/dev/null | head -1 | sed 's/.*"version": "\(.*\)".*/v\1/')
+    ver=$(grep '"version"' package.json 2>/dev/null | head -1 | sed $'s/\033\\[[0-9;]*[a-zA-Z]//g' | sed 's/.*"version": "\(.*\)".*/v\1/')
   fi
-  _git_ver=${ver:+" %F{black}${char_arrow} %f%F{yellow}${ver}%f"}
+  _git_ver=${ver:+" %F{60}${char_arrow} %f%F{75}${ver}%f"}
+  if [[ -n "$VIRTUAL_ENV" ]]; then
+    local venv_name="${VIRTUAL_ENV_PROMPT:-$(grep '^prompt' ${VIRTUAL_ENV}/pyvenv.cfg 2>/dev/null | sed 's/prompt = //')}"
+    venv_name="${venv_name:-${VIRTUAL_ENV:t}}"
+    _venv_prompt="%F{75}(${venv_name})%f "
+  else
+    _venv_prompt=""
+  fi
   # printPsOneLimiter
 }
 
