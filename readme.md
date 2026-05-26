@@ -8,6 +8,13 @@ Why they matter: every time you open a terminal, your shell reads these files to
 
 This repo is a portable Zsh config you can drop on any machine in a few seconds. It handles the common setup so you can focus on the overrides that matter to you.
 
+## Viewing hidden files
+
+Dotfiles start with `.` and are hidden by default.
+
+- **Terminal:** `ls -a` shows hidden files and folders in any directory.
+- **Finder:** Press `Shift-Cmd-.` to toggle hidden file visibility.
+
 ---
 
 Portable Zsh configuration shared across machines (macOS + Linux).
@@ -35,10 +42,3 @@ This will:
 ## Machine-specific config
 
 Put overrides, secrets, and machine-specific `PATH` additions in `~/.zshrc` *after* the source line. Keep `~/.zsh_secrets` (gitignored) for API keys and tokens.
-
-## Viewing hidden files
-
-Dotfiles start with `.` and are hidden by default.
-
-- **Terminal:** `ls -a` shows hidden files and folders in any directory.
-- **Finder:** Press `Shift-Cmd-.` to toggle hidden file visibility.
