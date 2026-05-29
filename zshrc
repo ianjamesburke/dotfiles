@@ -148,7 +148,7 @@ alias rg='rg -i'
 alias files='spf'
 alias c='IS_DEMO=1 claude --model sonnet --dangerously-skip-permissions --allow-dangerously-skip-permissions'
 alias cs='IS_DEMO=1 claude --model haiku --dangerously-skip-permissions --allow-dangerously-skip-permissions'
-alias cl='IS_DEMO=1 claude --model claude-opus-4-6 --dangerously-skip-permissions --allow-dangerously-skip-permissions'
+alias cl='IS_DEMO=1 claude --model claude-opus-4-8 --dangerously-skip-permissions --allow-dangerously-skip-permissions'
 if [[ "$IS_MACOS" == "true" ]]; then
   alias p='pbpaste'
 elif [[ "$IS_LINUX" == "true" ]]; then
@@ -166,12 +166,6 @@ rm() {
       return 1
     fi
   done
-  # Block -rf / -fr on home/root even when flags and path are separate args
-  local joined="${args[*]}"
-  if [[ "$joined" =~ -[rf]{2} ]] && [[ "$joined" =~ (~|$HOME|\" \"|^[[:space:]]*/[[:space:]]*$) ]]; then
-    echo "🚫 Blocked: rm -rf on home or root is not allowed." >&2
-    return 1
-  fi
   trash "${args[@]}"
 }
 
@@ -407,7 +401,7 @@ yeet() {
   local diff=$(git diff --cached)
   if [[ -z "$diff" ]]; then
     echo "yeet: nothing staged to commit"
-    return 1
+    return 0
   fi
 
   echo "→ generating commit message..."
