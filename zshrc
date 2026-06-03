@@ -18,6 +18,7 @@ fi
 export PROMPT_EOL_MARK=""
 export GH_NO_UPDATE_NOTIFIER=1
 export DOTFILES="$HOME/dotfiles"
+export PATH="/opt/homebrew/bin:$PATH"
 export PATH="/opt/homebrew/opt/trash/bin:$PATH"
 export PATH="/opt/homebrew/opt/python@3.13/bin:$PATH"
 alias python='python3'
@@ -28,7 +29,6 @@ export PNPM_HOME="$HOME/.local/share/pnpm"
 export PATH="$PNPM_HOME:$PATH"
 export PATH="$PATH:$HOME/.npm-global/bin"
 export PATH="$HOME/.local/nvim/bin:$PATH"
-export PATH="$HOME/.cline/cli/bin:$PATH"
 export PATH="$HOME/.antigravity/antigravity/bin:$PATH"
 export PATH="$HOME/.opencode/bin:$PATH"
 export PATH="$HOME/.cont/bin:$PATH"
@@ -148,7 +148,7 @@ alias rg='rg -i'
 alias files='spf'
 alias c='IS_DEMO=1 claude --model sonnet --dangerously-skip-permissions --allow-dangerously-skip-permissions'
 alias cs='IS_DEMO=1 claude --model haiku --dangerously-skip-permissions --allow-dangerously-skip-permissions'
-alias cl='IS_DEMO=1 claude --model claude-opus-4-8 --dangerously-skip-permissions --allow-dangerously-skip-permissions'
+alias cl='IS_DEMO=1 claude --model claude-opus-4-6 --dangerously-skip-permissions --allow-dangerously-skip-permissions'
 if [[ "$IS_MACOS" == "true" ]]; then
   alias p='pbpaste'
 elif [[ "$IS_LINUX" == "true" ]]; then
@@ -777,3 +777,6 @@ compdef _cont_complete cont
 
 # Parallax CLI tab completion
 [[ -f ~/.cache/zsh/parallax-completion.zsh ]] && source ~/.cache/zsh/parallax-completion.zsh
+
+# Limit Cargo build parallelism to reduce heat
+export RUSTC_WRAPPER=sccache
