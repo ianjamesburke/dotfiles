@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CLAUDE_PROJECTS="$HOME/.claude/projects"
+PI_SESSIONS="$HOME/.pi/agent/sessions"
+MEMPALACE="$HOME/.local/bin/mempalace"
+LOG="/tmp/mempalace-mine.out"
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') — mempalace session miner starting" >> "$LOG"
+
+dir_to_wing() {
+    local dirname="$1"
+    # Decode the Claude project dir name back to a path
+    # e.g. -Users-ianburke-Documents-GitHub-PLEXI -> PLEXI
+    # e.g. -Users-ianburke-Documents-GitHub-docdr--claude-worktrees-milestone-4 -> docdr
+    # e.g. -Users-ianburke--plexi-alpha-apps -> plexi
+    # e.g. -Users-ianburke -> home
+
+    # Pi uses --Users-ianburke-...--, Claude uses -Users-ianburke-...
+    # Strip trailing -- (Pi convention)
+    local stripped="${dirname%%--}"
+    # Strip leading --Users-ianburke or -Users-ianburke
+    stripped="${stripped##--Users-ianburke}"
+    stripped="${stripped#-Users-ianburke}"
+
+    # Bare home dir
+    if [ -z "$stripped" ] || [ "$stripped" = "-" ]; then
+        echo "home"
+        return
+    fi
+
+    # Strip leading dashes
+    while [[ "$stripped" == -* ]]; do stripped="${stripped#-}"; done
+
+    # Strip common path prefixes
+    stripped="${stripped#Documents-GitHub-}"
+    stripped="${stripped#Documents-github-}"
+    stripped="${stripped#Documents-parallax-projects-}"
+    stripped="${stripped#Movies-Agentic-Video-Production-}"
+    stripped="${stripped#Movies-Agentic-Video-Production}"
+    # Google Drive: encoded as Library-CloudStorage-GoogleDrive-...-My-Drive-<project>
+    stripped=$(echo "$stripped" | sed 's/^Library-CloudStorage-GoogleDrive-[^M]*My-Drive-//' | sed 's/^Library-CloudStorage-GoogleDrive-[^M]*My-Drive//')
+    # Movies prefix
+    stripped="${stripped#Movies-}"
+
+    # Strip worktree suffixes
+    local project="${stripped%%-worktrees-*}"
+    # Strip --subdir suffixes (Claude worktree convention)
+    project="${project%%--*}"
+    # Strip -pr-NNNN suffixes
+    project=$(echo "$project" | sed 's/-pr-[0-9]*$//')
+
+    # Normalize: lowercase
+    project=$(echo "$project" | tr '[:upper:]' '[:lower:]')
+
+    # Skip junk dirs
+    if [[ "$project" == private-* ]] || [[ "$project" == cont-test-* ]] || [ -z "$project" ]; then
+        return 1
+    fi
+
+    echo "$project"
+}
+
+# Collect unique wings and their source dirs
+declare -A wing_dirs
+
+scan_dirs=()
+for d in "$CLAUDE_PROJECTS"/*/; do [ -d "$d" ] && scan_dirs+=("$d"); done
+if [ -d "$PI_SESSIONS" ]; then
+    for d in "$PI_SESSIONS"/*/; do [ -d "$d" ] && scan_dirs+=("$d"); done
+fi
+
+for dir in "${scan_dirs[@]}"; do
+    dirname=$(basename "$dir")
+
+    wing=$(dir_to_wing "$dirname" 2>/dev/null) || continue
+    if [ -z "$wing" ]; then
+        continue
+    fi
+
+    # Check if there are any .jsonl files
+    jsonl_count=$(find "$dir" -maxdepth 1 -name "*.jsonl" -type f | wc -l)
+    if [ "$jsonl_count" -eq 0 ]; then
+        continue
+    fi
+
+    # Append this dir to the wing's list (space-separated)
+    if [ -n "${wing_dirs[$wing]:-}" ]; then
+        wing_dirs[$wing]="${wing_dirs[$wing]} $dir"
+    else
+        wing_dirs[$wing]="$dir"
+    fi
+done
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') — found ${#wing_dirs[@]} wings to mine" >> "$LOG"
+
+for wing in "${!wing_dirs[@]}"; do
+    IFS=' ' read -ra dirs <<< "${wing_dirs[$wing]}"
+    for dir in "${dirs[@]}"; do
+        echo "$(date '+%Y-%m-%d %H:%M:%S') — mining $dir -> wing: $wing" >> "$LOG"
+        "$MEMPALACE" mine "$dir" \
+            --mode convos \
+            --extract general \
+            --wing "$wing" \
+            >> "$LOG" 2>&1 || true
+    done
+done
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') — mempalace session miner complete" >> "$LOG"
