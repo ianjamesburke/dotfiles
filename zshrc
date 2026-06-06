@@ -18,6 +18,16 @@ fi
 export PROMPT_EOL_MARK=""
 export GH_NO_UPDATE_NOTIFIER=1
 export DOTFILES="$HOME/dotfiles"
+export EDITOR='nvim'
+export VISUAL='nvim'
+
+e() {
+  if [[ "$1" == *.md ]]; then
+    dawn "$@"
+  else
+    nvim "$@"
+  fi
+}
 export PATH="/opt/homebrew/bin:$PATH"
 export PATH="/opt/homebrew/opt/trash/bin:$PATH"
 export PATH="/opt/homebrew/opt/python@3.13/bin:$PATH"
@@ -149,11 +159,19 @@ alias files='spf'
 alias c='IS_DEMO=1 claude --model sonnet --dangerously-skip-permissions --allow-dangerously-skip-permissions'
 alias cs='IS_DEMO=1 claude --model haiku --dangerously-skip-permissions --allow-dangerously-skip-permissions'
 alias cl='IS_DEMO=1 claude --model claude-opus-4-6 --dangerously-skip-permissions --allow-dangerously-skip-permissions'
+
+# Pi models (Small / Medium / Large)
+alias ps='pi --provider ollama --model gemma4:e4b --tools read,find,ls --no-skills --system-prompt "You are a code assistant. Answer concisely."'
+alias pm='pi --provider openrouter --model minimax/minimax-m3'
+alias pl='pi --provider openrouter --model openai/gpt-5.4 --thinking minimal'
+
+# Clipboard — moved from p → pp since p is now Pi Medium
 if [[ "$IS_MACOS" == "true" ]]; then
-  alias p='pbpaste'
+  alias pp='pbpaste'
 elif [[ "$IS_LINUX" == "true" ]]; then
-  alias p='wl-paste'
+  alias pp='wl-paste'
 fi
+alias p='pm'
 
 # Re-run last command and copy a capsule: timestamp, dir, command, output
 # Safety: route rm through trash; block nukes
