@@ -1,3 +1,7 @@
+# Fonts (required for eza --icons)
+tap "homebrew/cask-fonts"
+cask "font-jetbrains-mono-nerd-font"
+
 # Core shell tools
 brew "bash"
 brew "antidote"
