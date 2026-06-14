@@ -422,31 +422,32 @@ yeet() {
     return 0
   fi
 
-  echo "→ generating commit message..."
-  local prompt="Generate a short, clear commit message without any markdown, code fences, or extra formatting. Just the message.
+  echo "→ committing with claude..."
+  claude --allowedTools "Bash" -p "You are a git commit assistant. You have been given staged changes to commit.
 
-Changes:
+Review the staged diff and create one or more focused, logical commits. You are encouraged to split changes into multiple commits when it makes sense (e.g. separate bug fixes from refactors, separate files with distinct purposes).
+
+Commit message format:
+- Use conventional commits: type(scope): description
+- Types: feat, fix, refactor, chore, docs, test, style, perf
+- Subject line: imperative mood, max 72 chars, no trailing period
+- No markdown, no code fences in the message
+
+To make multiple commits: use git reset HEAD to unstage all, then selectively stage with git add -p or git add <file>, then git commit -m for each logical group. The files are already fully staged to start.
+
+Run git push after all commits are done.
+
+Current diff:
 $diff"
-  local msg
-  msg=$(claude -p "$prompt" --model claude-haiku-4-5-20251001 2>/dev/null)
   local claude_exit=$?
 
   if [[ $claude_exit -ne 0 ]]; then
-    echo "yeet: claude exited with code $claude_exit"
-    echo "output: $msg"
+    echo "yeet: failed (exit $claude_exit)"
     return 1
   fi
 
-  if [[ -z "$msg" ]]; then
-    echo "yeet: claude returned empty message"
-    return 1
-  fi
-
-  echo "→ committing: $msg"
-  git commit -m "$msg" || { echo "yeet: git commit failed"; return 1; }
-
-  echo "→ pushing..."
-  git push || { echo "yeet: git push failed"; return 1; }
+  echo "→ done"
+  plexi pane close
 }
 
 # Tools & Apps
