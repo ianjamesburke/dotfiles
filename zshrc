@@ -437,6 +437,8 @@ To make multiple commits: use git reset HEAD to unstage all, then selectively st
 
 Run git push after all commits are done.
 
+Do NOT include any Co-Authored-By or co-authored-by trailers in commit messages.
+
 Current diff:
 $diff"
   local claude_exit=$?
