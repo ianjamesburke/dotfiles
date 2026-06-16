@@ -355,10 +355,10 @@ gs() {
 alias gp='git pull'
 gd() {
   if [[ $# -eq 0 ]]; then
-    read -q "REPLY?discard all unstaged + untracked? [y/N] " && echo && git restore . && git clean -fd && gs || echo ""
+    read -q "REPLY?discard all unstaged + untracked? [y/N] " && echo && git restore --staged . && git restore . && git clean -fd && gs || echo ""
   else
     if git ls-files --error-unmatch "$@" &>/dev/null; then
-      git restore "$@" && gs
+      git restore --staged "$@" 2>/dev/null; git restore "$@" && gs
     else
       rm -rf "$@" && gs
     fi
