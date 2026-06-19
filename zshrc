@@ -803,3 +803,9 @@ compdef _cont_complete cont
 
 # Limit Cargo build parallelism to reduce heat
 export RUSTC_WRAPPER=sccache
+
+noise() {
+  local freq=${1:-400}
+  local fade=${2:-1}
+  play -n synth brown vol 0.33 lowpass -1 "$freq" fade t "$fade"
+}

@@ -6,3 +6,10 @@
 __pycache__
 .ruff_cache
 zsh_plugins.zsh
+
+# Plexi runtime dirs
+.plexi*/
+
+# Machine-specific / not for new installs
+scripts/meridian-proxy
+launchd/com.ian.meridian-proxy.plist

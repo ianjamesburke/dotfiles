@@ -28,3 +28,4 @@ brew "satococoa/tap/wtp"
 # Media
 brew "ffmpeg"
 brew "imagemagick"
+brew "sox"
