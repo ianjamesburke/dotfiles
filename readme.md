@@ -6,7 +6,7 @@ Dotfiles are configuration files that live in your home directory and shape how 
 
 Why they matter: every time you open a terminal, your shell reads these files to set up your prompt, load aliases, configure your `$PATH`, and initialize plugins. They make your terminal *yours* — consistent keybindings, shortcuts, and defaults that travel with you.
 
-This repo is a portable Zsh config you can drop on any Mac in a few seconds. It handles the common setup so you can focus on the overrides that matter to you.
+This repo is a portable Zsh config you can drop on any Mac or Linux machine in a few seconds. It handles the common setup so you can focus on the overrides that matter to you. Windows is not supported.
 
 ## Viewing hidden files
 
@@ -17,7 +17,7 @@ Dotfiles start with `.` and are hidden by default.
 
 ---
 
-Portable Zsh configuration for macOS. Linux support is not planned at this time.
+Portable Zsh configuration for macOS and Linux.
 
 ## Install
 
@@ -34,7 +34,8 @@ This will:
 ## Structure
 
 - `zshrc` — main config (sourced by `~/.zshrc`)
-- `zsh_plugins.txt` — plugin list
+- `zsh_plugins.txt` — full plugin list
+- `zsh_plugins_lite.txt` — trimmed plugin list (Linux / slower machines)
 - `scripts/` — shell utilities on `$PATH` via `$DOTFILES/scripts`
 - `themes/` — zsh prompt themes
 
