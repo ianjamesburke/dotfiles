@@ -422,8 +422,8 @@ yeet() {
     return 0
   fi
 
-  echo "→ committing with claude..."
-  claude --allowedTools "Bash" -p "You are a git commit assistant. You have been given staged changes to commit.
+  echo "→ committing with codex..."
+  echo "$diff" | codex exec --dangerously-bypass-approvals-and-sandbox "You are a git commit assistant. You have been given staged changes to commit.
 
 Review the staged diff and create one or more focused, logical commits. You are encouraged to split changes into multiple commits when it makes sense (e.g. separate bug fixes from refactors, separate files with distinct purposes).
 
@@ -437,10 +437,7 @@ To make multiple commits: use git reset HEAD to unstage all, then selectively st
 
 Run git push after all commits are done.
 
-Do NOT include any Co-Authored-By or co-authored-by trailers in commit messages.
-
-Current diff:
-$diff"
+Do NOT include any Co-Authored-By or co-authored-by trailers in commit messages."
   local claude_exit=$?
 
   if [[ $claude_exit -ne 0 ]]; then

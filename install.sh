@@ -124,3 +124,10 @@ fi
 
 echo ""
 echo "Done. Open a new terminal or run: source ~/.zshrc"
+echo ""
+echo "⚠  REQUIRED: Set your terminal font to 'JetBrainsMono Nerd Font Mono'"
+echo "   Without it, eza --icons will show broken boxes instead of file icons."
+echo ""
+echo "   iTerm2:    Preferences → Profiles → Text → Font"
+echo "   Terminal:  Settings → Profiles → Font"
+echo "   Ghostty:   Add 'font-family = JetBrainsMono Nerd Font Mono' to config"
