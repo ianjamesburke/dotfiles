@@ -214,6 +214,7 @@ alias ...='cd ../..'
 alias reload='exec zsh'
 
 alias oc='opencode'
+alias code='open -a "Antigravity IDE"'
 
 alias jj='just --choose'
 
