@@ -807,3 +807,13 @@ noise() {
   local fade=${2:-1}
   play -n synth brown vol 0.33 lowpass -1 "$freq" fade t "$fade"
 }
+
+no-sleep() {
+  sudo pmset -b sleep 0 disablesleep 1
+  echo "Lid-close sleep disabled."
+}
+
+sleep() {
+  sudo pmset -b sleep 1 disablesleep 0
+  sudo pmset sleepnow
+}
