@@ -423,8 +423,8 @@ yeet() {
     return 0
   fi
 
-  echo "→ committing with codex..."
-  echo "$diff" | codex exec --dangerously-bypass-approvals-and-sandbox "You are a git commit assistant. You have been given staged changes to commit.
+  echo "→ committing with claude..."
+  echo "$diff" | claude --model claude-sonnet-5 --allowedTools "Bash(git add:*)" "Bash(git reset:*)" "Bash(git commit:*)" "Bash(git push:*)" -p "You are a git commit assistant. You have been given staged changes to commit via stdin — do not run git log, git show, git diff, or read any files; the diff below is the complete context you need.
 
 Review the staged diff and create one or more focused, logical commits. You are encouraged to split changes into multiple commits when it makes sense (e.g. separate bug fixes from refactors, separate files with distinct purposes).
 
