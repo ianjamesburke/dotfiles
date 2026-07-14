@@ -412,8 +412,13 @@ alias gpu='git push'
 alias lg='lazygit'
 alias poosh='git add . | git commit -a -m "$(git diff --cached | gemini --model=gemini-2.5-flash --prompt \"Generate a short, clear commit message\")" && git push'
 
-# poosh but with claude code
+# poosh but with a free OpenRouter model for the commit message
 yeet() {
+  if [[ -z "$OPENROUTER_API_KEY" ]]; then
+    echo "yeet: OPENROUTER_API_KEY not set"
+    return 1
+  fi
+
   echo "→ staging changes..."
   git add . || { echo "yeet: git add failed"; return 1; }
 
@@ -423,28 +428,40 @@ yeet() {
     return 0
   fi
 
-  echo "→ committing with claude..."
-  echo "$diff" | claude --model claude-sonnet-5 --allowedTools "Bash(git add:*)" "Bash(git reset:*)" "Bash(git commit:*)" "Bash(git push:*)" -p "You are a git commit assistant. You have been given staged changes to commit via stdin — do not run git log, git show, git diff, or read any files; the diff below is the complete context you need.
+  echo "→ generating commit message..."
+  local prompt="You are a git commit assistant. Given the staged diff below, write ONE conventional commit message (type(scope): description, imperative mood, max 72 chars, no trailing period, no markdown, no code fences). Output ONLY the commit message subject line, nothing else.
 
-Review the staged diff and create one or more focused, logical commits. You are encouraged to split changes into multiple commits when it makes sense (e.g. separate bug fixes from refactors, separate files with distinct purposes).
+DIFF:
+$diff"
 
-Commit message format:
-- Use conventional commits: type(scope): description
-- Types: feat, fix, refactor, chore, docs, test, style, perf
-- Subject line: imperative mood, max 72 chars, no trailing period
-- No markdown, no code fences in the message
+  local payload=$(python3 -c '
+import json, sys
+print(json.dumps({"model": "openai/gpt-oss-20b:free", "messages": [{"role": "user", "content": sys.argv[1]}]}))
+' "$prompt")
 
-To make multiple commits: use git reset HEAD to unstage all, then selectively stage with git add -p or git add <file>, then git commit -m for each logical group. The files are already fully staged to start.
+  local response=$(curl -s https://openrouter.ai/api/v1/chat/completions \
+    -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d "$payload")
 
-Run git push after all commits are done.
+  local msg=$(echo "$response" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+try:
+    print(d["choices"][0]["message"]["content"].strip().splitlines()[0])
+except Exception:
+    sys.exit(1)
+')
 
-Do NOT include any Co-Authored-By or co-authored-by trailers in commit messages."
-  local claude_exit=$?
-
-  if [[ $claude_exit -ne 0 ]]; then
-    echo "yeet: failed (exit $claude_exit)"
+  if [[ -z "$msg" ]]; then
+    echo "yeet: failed to generate commit message"
+    echo "$response"
     return 1
   fi
+
+  echo "→ $msg"
+  git commit -m "$msg" || { echo "yeet: git commit failed"; return 1; }
+  git push || { echo "yeet: git push failed"; return 1; }
 
   echo "→ done"
   plexi pane close
