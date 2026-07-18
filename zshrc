@@ -830,7 +830,10 @@ no-sleep() {
   echo "Lid-close sleep disabled."
 }
 
-sleep() {
+# Renamed from `sleep()` 2026-07-18: it shadowed the sleep(1) coreutil, so any
+# non-TTY shell running `sleep N` emitted paired sudo errors (and with cached
+# creds would have actually slept the Mac). See PLEXI stints 0357/0443.
+go-sleep() {
   sudo pmset -b sleep 1 disablesleep 0
   sudo pmset sleepnow
 }
