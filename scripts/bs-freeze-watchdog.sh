@@ -63,14 +63,32 @@ if [[ -z "$selected_socket" ]]; then
 fi
 
 export PLEXI_SOCKET="$selected_socket"
+
+# Only real run lanes may suppress a nudge. A lane is a pane the head spawned:
+# either its title carries a lane prefix, or RUN_STATE.md names its id. An
+# interactive "me" session is neither, and must never keep the watchdog quiet.
+run_state_file=/Users/ianburke/Documents/GitHub/PLEXI/.agents/skills/babysitter/RUN_STATE.md
+run_state_ids=
+if [[ -r "$run_state_file" ]]; then
+    run_state_ids=$(grep -oiE 'pane[[:space:]]+#?[0-9]+' "$run_state_file" 2>/dev/null \
+        | grep -oE '[0-9]+' | sort -u | tr '\n' ',')
+fi
+export WD_RUN_STATE_IDS="$run_state_ids"
+
 if ! pane_summary=$(printf '%s' "$panes_json" | /usr/bin/python3 -c '
 import json
+import os
 import sys
 
 try:
     panes = json.load(sys.stdin)
 except (json.JSONDecodeError, TypeError):
     sys.exit(1)
+
+lane_ids = {
+    part for part in os.environ.get("WD_RUN_STATE_IDS", "").split(",") if part
+}
+lane_prefixes = ("worker-", "tester-", "merge-", "bs-")
 
 eligible = [
     pane for pane in panes
@@ -82,13 +100,33 @@ if not heads:
     sys.exit(0)
 
 head = heads[0]
+head_id = head.get("id")
 state = head.get("agent", {}).get("state", "unknown")
+
+
+def is_lane(pane):
+    if pane.get("id") == head_id:
+        return False
+    title = pane.get("title") or ""
+    if any(prefix in title for prefix in lane_prefixes):
+        return True
+    return str(pane.get("id")) in lane_ids
+
+
 working_lanes = sum(
     1 for pane in eligible
-    if "bs-head" not in (pane.get("title") or "")
+    if is_lane(pane) and pane.get("agent", {}).get("state") == "working"
+)
+skipped = sum(
+    1 for pane in eligible
+    if not is_lane(pane)
+    and pane.get("id") != head_id
     and pane.get("agent", {}).get("state") == "working"
 )
-print(str(head.get("id")) + "\t" + str(state) + "\t" + str(working_lanes))
+print(
+    str(head_id) + "\t" + str(state) + "\t" + str(working_lanes)
+    + "\t" + str(skipped)
+)
 '); then
     log "socket $selected_socket: unable to parse pane list"
     exit 0
@@ -100,7 +138,7 @@ if [[ -z "$pane_summary" ]]; then
     exit 0
 fi
 
-IFS=$'\t' read -r head_id head_state working_lanes <<<"$pane_summary"
+IFS=$'\t' read -r head_id head_state working_lanes non_lane_working <<<"$pane_summary"
 head_status=
 if ! head_status=$(plexi pane slot read status "$head_id" 2>/dev/null); then
     head_status=
@@ -112,7 +150,7 @@ fi
 
 if [[ "$head_status" == *:done || "$head_status" == *:blocked || "$head_status" == *:failed ]]; then
     printf '0\n' >"$consec_file" 2>/dev/null || true
-    log "socket $selected_socket; head pane $head_id state=$head_state; working-lanes=$working_lanes; head status=$status_display; frozen=no; consecutive=0; head terminal ($head_status) - no action"
+    log "socket $selected_socket; head pane $head_id state=$head_state; working-lanes=$working_lanes (non-lane working panes ignored: $non_lane_working); head status=$status_display; frozen=no; consecutive=0; head terminal ($head_status) - no action"
     exit 0
 fi
 
@@ -131,13 +169,13 @@ fi
 
 if [[ "$frozen" == 0 ]]; then
     printf '0\n' >"$consec_file" 2>/dev/null || true
-    log "socket $selected_socket; head pane $head_id state=$head_state; working-lanes=$working_lanes; head status=$status_display; frozen=no; consecutive=0; no action"
+    log "socket $selected_socket; head pane $head_id state=$head_state; working-lanes=$working_lanes (non-lane working panes ignored: $non_lane_working); head status=$status_display; frozen=no; consecutive=0; no action"
     exit 0
 fi
 
 consecutive=$((consecutive + 1))
 printf '%s\n' "$consecutive" >"$consec_file" 2>/dev/null || true
-log "socket $selected_socket; head pane $head_id state=$head_state; working-lanes=$working_lanes; head status=$status_display; frozen=yes; consecutive=$consecutive"
+log "socket $selected_socket; head pane $head_id state=$head_state; working-lanes=$working_lanes (non-lane working panes ignored: $non_lane_working); head status=$status_display; frozen=yes; consecutive=$consecutive"
 
 if (( consecutive < 2 )); then
     log "debounce awaiting second consecutive frozen detection - no action"
