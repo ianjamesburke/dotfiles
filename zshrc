@@ -753,7 +753,15 @@ auto_activate_venv() {
   if [[ -f .venv/bin/activate ]]; then
     source .venv/bin/activate
   elif [[ -n "$VIRTUAL_ENV" && ! -f .venv/bin/activate ]]; then
-    deactivate
+    # `deactivate` is defined by the venv's activate script, so it exists only
+    # in the shell that sourced it. VIRTUAL_ENV, being exported, is inherited by
+    # every child process — so a child shell sees the variable without the
+    # function and prints "command not found: deactivate" on startup and on
+    # every chpwd. That line leaks into anything capturing shell output; it was
+    # corrupting PLEXI's PTY harness assertions with a phantom first line.
+    if typeset -f deactivate >/dev/null; then
+      deactivate
+    fi
   fi
 }
 add-zsh-hook chpwd auto_activate_venv
