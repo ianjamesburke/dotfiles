@@ -1,5 +1,5 @@
 #!/bin/bash
-# Default is a preview. launchd supplies --apply; failures leave files untouched.
+# Default is a preview. launchd supplies --apply; a busy build takes priority.
 set -euo pipefail
 REPO="$HOME/Documents/GitHub/PLEXI"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
