@@ -100,6 +100,7 @@ function pruneBuilds(repos, apply, days) {
   const env = { ...process.env };
   delete env.CARGO_TARGET_DIR;
   delete env.CARGO_BUILD_TARGET_DIR;
+  env.CARGO_NET_OFFLINE = "true";
   const cargo = path.join(os.homedir(), '.cargo/bin/cargo');
   const sweep = path.join(os.homedir(), '.cargo/bin/cargo-sweep');
   const seen = new Set();
@@ -128,7 +129,7 @@ function pruneBuilds(repos, apply, days) {
         log(`skip active worktree/target: ${project}`);
         continue;
       }
-      const metadata = JSON.parse(run(cargo, ['metadata', '--no-deps', '--format-version', '1', '--manifest-path', path.join(project, 'Cargo.toml')], env, { cwd: project }));
+      const metadata = JSON.parse(run(cargo, ['metadata', '--locked', '--offline', '--no-deps', '--format-version', '1', '--manifest-path', path.join(project, 'Cargo.toml')], env, { cwd: project }));
       if (path.resolve(metadata.target_directory) !== target) {
         log(`skip redirected Cargo target: ${project}`);
         continue;
