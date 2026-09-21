@@ -25,11 +25,15 @@ Portable Zsh configuration for macOS and Linux.
 curl -fsSL https://raw.githubusercontent.com/ianjamesburke/dotfiles/main/install.sh | sh
 ```
 
-This will:
+On macOS, this will:
 1. Clone the repo to `~/dotfiles`
 2. Install Homebrew (if missing, macOS only)
-3. Install [antidote](https://getantidote.github.io/) for plugin management
+3. Install packages from `Brewfile`, including [antidote](https://getantidote.github.io/)
 4. Append a source line to `~/.zshrc`
+
+On Debian/Ubuntu Linux, it installs `zsh`, `git`, `fzf`, `jq`, `zoxide`, `bat`, `fd-find`, and `gh` with `apt`, installs `eza` when that package is available, and clones Antidote into `~/.antidote`. It creates `bat` and `fd` compatibility symlinks for distributions that call them `batcat` and `fdfind`.
+
+The installer deliberately skips macOS-only Homebrew casks and fonts on Linux. Install a Nerd Font in your terminal separately if you want eza icons. The full plugin set is used by default; use `DOTFILES_LITE=1` to load the lighter plugin bundle (also selected automatically on the `omarchy` host).
 
 ## Structure
 
