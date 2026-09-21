@@ -28,9 +28,13 @@ e() {
     nvim "$@"
   fi
 }
-export PATH="/opt/homebrew/bin:$PATH"
-export PATH="/opt/homebrew/opt/trash/bin:$PATH"
-export PATH="/opt/homebrew/opt/python@3.13/bin:$PATH"
+if [[ "$IS_MACOS" == "true" ]]; then
+  export PATH="/opt/homebrew/bin:$PATH"
+  export PATH="/opt/homebrew/opt/trash/bin:$PATH"
+  export PATH="/opt/homebrew/opt/python@3.13/bin:$PATH"
+elif [[ "$IS_LINUX" == "true" && -x /home/linuxbrew/.linuxbrew/bin/brew ]]; then
+  eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+fi
 alias python='python3'
 export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:$PATH"
 export PATH="$DOTFILES/scripts:$PATH"
@@ -58,7 +62,7 @@ compinit -C
 # ------------------------------------------------------------------------------
 # PLUGIN MANAGEMENT (Antidote)
 # ------------------------------------------------------------------------------
-if [[ "$(hostname)" == "omarchy" ]]; then
+if [[ "${DOTFILES_LITE:-0}" == "1" || "$(hostname)" == "omarchy" ]]; then
     [[ -f "$DOTFILES/zsh_plugins_lite.zsh" ]] && source "$DOTFILES/zsh_plugins_lite.zsh"
 else
     [[ -f "$DOTFILES/zsh_plugins.zsh" ]] && source "$DOTFILES/zsh_plugins.zsh"

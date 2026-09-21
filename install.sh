@@ -4,6 +4,7 @@ set -e
 DOTFILES="$HOME/dotfiles"
 REPO="https://github.com/ianjamesburke/dotfiles.git"
 SOURCE_LINE='[[ -f ~/dotfiles/zshrc ]] && source ~/dotfiles/zshrc'
+OS="$(uname -s)"
 
 # ── Welcome ──────────────────────────────────────────────────────────
 cat <<'WELCOME'
@@ -21,10 +22,10 @@ cat <<'WELCOME'
   ║   • "zsh" is the language your Terminal speaks. This script  ║
   ║     teaches it new tricks: aliases, shortcuts, and colors.   ║
   ║                                                              ║
-  ║   • "Homebrew" is an app store for developer tools. We'll    ║
-  ║     use it to install everything the setup needs.            ║
+  ║   • We'll install the command-line tools this setup needs.   ║
+  ║     macOS uses Homebrew; Linux uses its system package tool. ║
   ║                                                              ║
-  ║   • You'll be asked for your Mac password once. That's       ║
+  ║   • You may be asked for your administrator password once.   ║
   ║     normal. Some tools need admin access to install.         ║
   ║     Nothing sketchy, promise. It's the same password you     ║
   ║     use to unlock your computer. The characters won't show   ║
@@ -36,11 +37,6 @@ cat <<'WELCOME'
 
 WELCOME
 
-# ── Keep sudo alive for the duration of the script ───────────────────
-echo "We need admin access to install system tools."
-sudo -v
-while true; do sudo -n true; sleep 50; kill -0 "$$" || exit; done 2>/dev/null &
-
 # 1. Clone repo
 if [ -d "$DOTFILES/.git" ]; then
   echo "dotfiles already cloned, pulling latest..."
@@ -50,23 +46,51 @@ else
   git clone "$REPO" "$DOTFILES"
 fi
 
-# 2. Install Homebrew (macOS only)
-if [ "$(uname)" = "Darwin" ] && ! command -v brew >/dev/null 2>&1; then
+# 2. Install platform packages
+if [ "$OS" = "Darwin" ] && ! command -v brew >/dev/null 2>&1; then
   echo "Installing Homebrew..."
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi
 
 # Ensure Homebrew-installed tools are on PATH for this session
-[ -x /opt/homebrew/bin/brew ] && eval "$(/opt/homebrew/bin/brew shellenv)"
-[ -x /usr/local/bin/brew ] && eval "$(/usr/local/bin/brew shellenv)"
+[ "$OS" = "Darwin" ] && [ -x /opt/homebrew/bin/brew ] && eval "$(/opt/homebrew/bin/brew shellenv)"
+[ "$OS" = "Darwin" ] && [ -x /usr/local/bin/brew ] && eval "$(/usr/local/bin/brew shellenv)"
+[ "$OS" = "Linux" ] && [ -x /home/linuxbrew/.linuxbrew/bin/brew ] && eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 
-# 3. Install packages from Brewfile
-if command -v brew >/dev/null 2>&1; then
+# macOS: Brewfile is the single source of truth for all Homebrew packages.
+if [ "$OS" = "Darwin" ] && command -v brew >/dev/null 2>&1; then
   echo "Installing packages from Brewfile..."
   brew bundle --file="$DOTFILES/Brewfile"
+elif [ "$OS" = "Linux" ]; then
+  if ! command -v apt-get >/dev/null 2>&1; then
+    echo "No supported Linux package manager found (expected apt-get)."
+    echo "Install zsh, git, fzf, jq, zoxide, bat, fd, eza, gh, and antidote manually."
+    exit 1
+  fi
+
+  echo "Installing Linux shell tools with apt..."
+  sudo -v
+  sudo apt-get update
+  sudo apt-get install -y zsh git fzf jq zoxide bat fd-find gh
+
+  # eza is available in newer Debian/Ubuntu releases; leave an existing binary alone.
+  if ! command -v eza >/dev/null 2>&1 && apt-cache show eza >/dev/null 2>&1; then
+    sudo apt-get install -y eza
+  else
+    command -v eza >/dev/null 2>&1 || echo "eza is not available from this apt repository; install it separately if desired."
+  fi
+
+  # Debian names these binaries batcat and fdfind. Keep dotfile commands portable.
+  mkdir -p "$HOME/.local/bin"
+  if ! command -v bat >/dev/null 2>&1 && command -v batcat >/dev/null 2>&1; then
+    ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat"
+  fi
+  if ! command -v fd >/dev/null 2>&1 && command -v fdfind >/dev/null 2>&1; then
+    ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd"
+  fi
 else
-  echo "Homebrew not available, skipping package install."
-  echo "Install antidote manually: https://getantidote.github.io"
+  echo "Unsupported operating system: $OS"
+  exit 1
 fi
 
 # 4. Install Rust via rustup
@@ -102,13 +126,24 @@ else
   echo "uv not available, skipping mermaid-ascii."
 fi
 
-# 8. Generate antidote plugin bundle
-if command -v brew >/dev/null 2>&1; then
+# 8. Install Antidote and generate plugin bundles
+ANTIDOTE_ZSH=""
+if [ "$OS" = "Darwin" ] && command -v brew >/dev/null 2>&1; then
   ANTIDOTE_ZSH="$(brew --prefix antidote 2>/dev/null)/share/antidote/antidote.zsh"
-  if [ -f "$ANTIDOTE_ZSH" ]; then
-    echo "Generating zsh plugin bundle..."
-    zsh -c "source '$ANTIDOTE_ZSH' && antidote bundle < '$DOTFILES/zsh_plugins.txt' > '$DOTFILES/zsh_plugins.zsh'"
+elif [ "$OS" = "Linux" ]; then
+  ANTIDOTE_ZSH="$HOME/.antidote/antidote.zsh"
+  if [ ! -f "$ANTIDOTE_ZSH" ]; then
+    echo "Installing Antidote to ~/.antidote..."
+    git clone --depth=1 https://github.com/mattmc3/antidote.git "$HOME/.antidote"
   fi
+fi
+
+if [ -f "$ANTIDOTE_ZSH" ]; then
+  echo "Generating Antidote plugin bundles..."
+  zsh -c "source '$ANTIDOTE_ZSH' && antidote bundle < '$DOTFILES/zsh_plugins.txt' > '$DOTFILES/zsh_plugins.zsh'"
+  zsh -c "source '$ANTIDOTE_ZSH' && antidote bundle < '$DOTFILES/zsh_plugins_lite.txt' > '$DOTFILES/zsh_plugins_lite.zsh'"
+else
+  echo "Antidote was not found; plugin bundles were not generated."
 fi
 
 # 9. Wire up ~/.zshrc
@@ -125,9 +160,13 @@ fi
 echo ""
 echo "Done. Open a new terminal or run: source ~/.zshrc"
 echo ""
-echo "⚠  REQUIRED: Set your terminal font to 'JetBrainsMono Nerd Font Mono'"
-echo "   Without it, eza --icons will show broken boxes instead of file icons."
-echo ""
-echo "   iTerm2:    Preferences → Profiles → Text → Font"
-echo "   Terminal:  Settings → Profiles → Font"
-echo "   Ghostty:   Add 'font-family = JetBrainsMono Nerd Font Mono' to config"
+if [ "$OS" = "Darwin" ]; then
+  echo "⚠  REQUIRED: Set your terminal font to 'JetBrainsMono Nerd Font Mono'"
+  echo "   Without it, eza --icons will show broken boxes instead of file icons."
+  echo ""
+  echo "   iTerm2:    Preferences → Profiles → Text → Font"
+  echo "   Terminal:  Settings → Profiles → Font"
+  echo "   Ghostty:   Add 'font-family = JetBrainsMono Nerd Font Mono' to config"
+else
+  echo "Linux skips macOS-only Homebrew casks and fonts. Install a Nerd Font in your terminal if you want eza icons."
+fi
