@@ -519,6 +519,7 @@ alias logsprod='fly logs -c fly.prod.toml'
 alias stars='astroterm --color --constellations --speed 1000 --fps 64 --city Detroit -m'
 alias xx='plexi pane close'
 alias co='codex -s danger-full-access'
+alias nnj='com "new nooise jam"'
 alias mandelbrot='python3 $DOTFILES/scripts/mandelbrot.py'
 alias stars-now='astroterm --color --constellations --speed 1 --city Detroit -m'
 
