@@ -28,8 +28,13 @@ curl -fsSL https://raw.githubusercontent.com/ianjamesburke/dotfiles/main/install
 This will:
 1. Clone the repo to `~/dotfiles`
 2. Install Homebrew (if missing, macOS only)
-3. Install [antidote](https://getantidote.github.io/) for plugin management
-4. Append a source line to `~/.zshrc`
+3. Install missing `zsh` and Neovim on Linux
+4. Install [antidote](https://getantidote.github.io/) for plugin management (via Homebrew on macOS, or `~/.antidote` on Linux)
+5. Generate the plugin bundle and append a source line to `~/.zshrc`
+
+On Ubuntu, the installer uses `apt` and will ask for sudo when it needs to
+install `zsh` or Neovim. It does not change your login shell; run `chsh -s "$(command -v zsh)"`
+separately if you want zsh to be the default.
 
 ## Structure
 
