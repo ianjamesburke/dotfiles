@@ -158,7 +158,7 @@ alias rg='rg -i'
 alias files='spf'
 alias c='IS_DEMO=1 claude --model sonnet --dangerously-skip-permissions --allow-dangerously-skip-permissions'
 alias cs='IS_DEMO=1 claude --model haiku --dangerously-skip-permissions --allow-dangerously-skip-permissions'
-alias cl='IS_DEMO=1 claude --model claude-opus-4-6 --dangerously-skip-permissions --allow-dangerously-skip-permissions'
+alias cl='IS_DEMO=1 claude --model claude-opus-5-5 --dangerously-skip-permissions --allow-dangerously-skip-permissions'
 
 # Pi models (Small / Medium / Large)
 alias ps='pi --provider ollama --model gemma4:e4b --tools read,find,ls --no-skills --system-prompt "You are a code assistant. Answer concisely."'
@@ -519,6 +519,7 @@ alias logsprod='fly logs -c fly.prod.toml'
 alias stars='astroterm --color --constellations --speed 1000 --fps 64 --city Detroit -m'
 alias xx='plexi pane close'
 alias co='codex -s danger-full-access'
+alias nnj='com "new nooise jam"'
 alias mandelbrot='python3 $DOTFILES/scripts/mandelbrot.py'
 alias stars-now='astroterm --color --constellations --speed 1 --city Detroit -m'
 
