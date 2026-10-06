@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+"""Speak Claude Code output aloud through the system output device.
+
+Wired as a Claude Code hook. Two entrypoints:
+
+    claude-speak hook-stop      # Stop event: speak the assistant's response
+    claude-speak hook-notify    # Notification event: speak a short alert
+
+Both read the hook JSON payload on stdin, never block, and always exit 0.
+Everything else is the interactive surface (see `speak-toggle`), which is
+loud about misconfiguration where the hook path is deliberately silent.
+
+State lives in ~/.claude/speak/:
+    config.json    explicit config, no defaults in code (created by speak-toggle)
+    speaking.pid   pid of the in-flight `say`, used for barge-in
+    error.log      last failure from the hook path, surfaced by `speak-toggle status`
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+
+STATE_DIR = os.path.expanduser("~/.claude/speak")
+CONFIG_PATH = os.path.join(STATE_DIR, "config.json")
+PID_PATH = os.path.join(STATE_DIR, "speaking.pid")
+ERROR_LOG = os.path.join(STATE_DIR, "error.log")
+
+# Written verbatim by `speak-toggle` on first run. Every key is required at
+# read time; a missing key raises rather than falling back.
+CONFIG_TEMPLATE = {
+    "voice": "Alex",
+    "rate": 190,
+    "speak_responses": False,
+    "speak_notifications": True,
+    "max_words": 60,
+    "notification_types": [
+        "permission_prompt",
+        "idle_prompt",
+        "agent_needs_input",
+    ],
+}
+
+REQUIRED_KEYS = tuple(CONFIG_TEMPLATE)
+
+NOTIFICATION_PHRASES = {
+    "permission_prompt": "Claude needs permission.",
+    "idle_prompt": "Claude is waiting for you.",
+    "agent_needs_input": "An agent needs input.",
+    "agent_completed": "An agent finished.",
+    "elicitation_dialog": "Claude is asking something.",
+}
+
+
+# ---------------------------------------------------------------- config
+
+
+def load_config():
+    """Return the config dict. Raises if absent, malformed, or incomplete."""
+    with open(CONFIG_PATH) as fh:
+        cfg = json.load(fh)
+    missing = [k for k in REQUIRED_KEYS if k not in cfg]
+    if missing:
+        raise KeyError(
+            f"{CONFIG_PATH} is missing required key(s): {', '.join(missing)}. "
+            f"Add them, or delete the file and run `speak-toggle status` to recreate it."
+        )
+    return cfg
+
+
+def enabled_for_responses(cfg):
+    """File config is the live switch; CLAUDE_SPEAK=1 force-enables per session.
+
+    The env var is fixed at Claude Code launch, so it is a per-session opt-in.
+    The config file is re-read on every hook invocation, so `speak-toggle`
+    takes effect immediately without a restart.
+    """
+    if os.environ.get("CLAUDE_SPEAK") == "1":
+        return True
+    if os.environ.get("CLAUDE_SPEAK") == "0":
+        return False
+    return bool(cfg["speak_responses"])
+
+
+# ---------------------------------------------------------------- cleaning
+
+_FENCE = re.compile(r"```.*?(?:```|\Z)", re.DOTALL)
+_INDENTED_BLOCK = re.compile(r"^(?: {4}|\t).*$", re.MULTILINE)
+_MD_LINK = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+_BARE_URL = re.compile(r"\b(?:https?://|www\.)\S+")
+_TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$", re.MULTILINE)
+_INLINE_CODE = re.compile(r"`([^`]*)`")
+_PATH = re.compile(r"(?:~|\.{0,2})?/[\w.\-/]*[\w\-]")
+_LONG_ID = re.compile(r"\b(?=\w*\d)[0-9a-fA-F]{12,}\b|\b\w{24,}\b")
+_HEADING = re.compile(r"^\s{0,3}#{1,6}\s*", re.MULTILINE)
+_BULLET = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+", re.MULTILINE)
+_QUOTE = re.compile(r"^\s*>+\s*", re.MULTILINE)
+_RULE = re.compile(r"^\s*(?:[-*_]\s*){3,}$", re.MULTILINE)
+_EMPHASIS = re.compile(r"(\*{1,3}|_{1,3}|~~)(?=\S)(.+?)(?<=\S)\1", re.DOTALL)
+_LEFTOVER_MARKS = re.compile(r"[*_`#|>]+")
+_EMPTY_CALL = re.compile(r"\(\s*\)")
+_SPACE_BEFORE_PUNCT = re.compile(r"\s+([,.;:!?])")
+_DUP_PUNCT = re.compile(r"([,.;:!?])(?:\s*[,.;:])+")
+_WS = re.compile(r"\s+")
+
+
+def _basename_for_speech(match):
+    """A path is read as its file name only, with the extension dropped."""
+    name = os.path.basename(match.group(0).rstrip("/"))
+    if not name:
+        return "a path"
+    stem = os.path.splitext(name)[0]
+    return re.sub(r"[-_]+", " ", stem) or "a path"
+
+
+def clean(text):
+    """Reduce markdown/tool output to something worth hearing.
+
+    Regex is the right tool here: the input is prose that happens to carry
+    markdown markers, not a structured document being parsed for meaning.
+    """
+    text = _FENCE.sub(" Code block. ", text)
+    text = _TABLE_ROW.sub(" ", text)
+    text = _INDENTED_BLOCK.sub(" ", text)
+    text = _MD_LINK.sub(r"\1", text)
+    text = _BARE_URL.sub(" a link ", text)
+    text = _INLINE_CODE.sub(r"\1", text)
+    text = _PATH.sub(_basename_for_speech, text)
+    text = _LONG_ID.sub(" an ID ", text)
+    text = _RULE.sub(" ", text)
+    text = _HEADING.sub("", text)
+    text = _BULLET.sub("", text)
+    text = _QUOTE.sub("", text)
+    text = _EMPHASIS.sub(r"\2", text)
+    text = _LEFTOVER_MARKS.sub(" ", text)
+    text = text.replace("—", ", ").replace("→", " to ").replace("…", ".")
+    text = _EMPTY_CALL.sub("", text)
+    text = _WS.sub(" ", text)
+    text = _SPACE_BEFORE_PUNCT.sub(r"\1", text)
+    text = _DUP_PUNCT.sub(r"\1", text)
+    return text.strip()
+
+
+def cap(text, max_words):
+    """Trim to max_words at a sentence boundary where possible."""
+    words = text.split()
+    if len(words) <= max_words:
+        return text
+    head = " ".join(words[:max_words])
+    cut = max(head.rfind(". "), head.rfind("? "), head.rfind("! "))
+    if cut > len(head) // 2:
+        head = head[: cut + 1]
+    remaining = len(words) - len(head.split())
+    return f"{head} And {remaining} more words on screen."
+
+
+# ---------------------------------------------------------------- speaking
+
+
+def kill_previous():
+    """Barge-in: terminate the in-flight utterance so speech never stacks."""
+    try:
+        with open(PID_PATH) as fh:
+            pid = int(fh.read().strip())
+    except (OSError, ValueError):
+        return
+    try:
+        # Guard against pid reuse: only kill it if it is still a `say`.
+        # `pgrep` is used rather than `ps -p` because `say` runs in its own
+        # session and `ps -p` cannot see across sessions in every context.
+        live = subprocess.run(
+            ["pgrep", "-x", "say"], capture_output=True, text=True, check=False
+        ).stdout.split()
+        if str(pid) in live:
+            os.kill(pid, 15)
+    except OSError:
+        pass
+
+
+def speak(text, cfg):
+    """Start `say` detached and return immediately. Never waits on audio."""
+    if not text:
+        return
+    kill_previous()
+    proc = subprocess.Popen(
+        ["say", "-v", str(cfg["voice"]), "-r", str(cfg["rate"]), "--", text],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(PID_PATH, "w") as fh:
+        fh.write(str(proc.pid))
+
+
+# ---------------------------------------------------------------- hooks
+
+
+def hook_stop(payload, cfg):
+    if not enabled_for_responses(cfg):
+        return
+    message = payload.get("last_assistant_message") or ""
+    if not message:
+        message = last_assistant_from_transcript(payload.get("transcript_path"))
+    speak(cap(clean(message), int(cfg["max_words"])), cfg)
+
+
+def hook_notify(payload, cfg):
+    """Speak a short alert for the notification types in the allowlist.
+
+    The Stop payload was confirmed against a live turn; the Notification
+    payload could not be (permission prompts do not render headlessly). So
+    the absence of `notification_type` is treated as "this build names the
+    field differently" and falls back to the message, rather than going
+    silent and hiding the very alerts this is most useful for. A type that
+    is present but not allowlisted is a deliberate skip.
+    """
+    if not cfg["speak_notifications"]:
+        return
+    if "notification_type" not in payload:
+        speak(cap(clean(payload.get("message") or ""), 20), cfg)
+        return
+    kind = payload["notification_type"]
+    if kind not in cfg["notification_types"]:
+        return
+    speak(NOTIFICATION_PHRASES.get(kind) or cap(clean(payload.get("message") or ""), 20), cfg)
+
+
+def last_assistant_from_transcript(path):
+    """Fallback for payloads without `last_assistant_message`.
+
+    The transcript is JSONL, one event per line; the last assistant event's
+    text blocks are the response. Returns "" if anything about it is off.
+    """
+    if not path or not os.path.exists(path):
+        return ""
+    try:
+        with open(path, errors="replace") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return ""
+    for line in reversed(lines):
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("type") != "assistant":
+            continue
+        content = event.get("message", {}).get("content")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = [
+                block.get("text", "")
+                for block in content
+                if isinstance(block, dict) and block.get("type") == "text"
+            ]
+            joined = "\n".join(p for p in parts if p).strip()
+            if joined:
+                return joined
+    return ""
+
+
+HOOKS = {"hook-stop": hook_stop, "hook-notify": hook_notify}
+
+
+def main():
+    if len(sys.argv) != 2 or sys.argv[1] not in HOOKS:
+        sys.stderr.write(f"usage: claude-speak {{{'|'.join(HOOKS)}}}\n")
+        return 1
+    try:
+        raw = sys.stdin.read()
+        if os.environ.get("CLAUDE_SPEAK_DEBUG") == "1":
+            os.makedirs(STATE_DIR, exist_ok=True)
+            with open(os.path.join(STATE_DIR, "payloads.jsonl"), "a") as fh:
+                fh.write(f'{{"event":"{sys.argv[1]}","payload":{raw.strip() or "null"}}}\n')
+        payload = json.loads(raw) if raw.strip() else {}
+        HOOKS[sys.argv[1]](payload, load_config())
+    except Exception as exc:  # never block or fail a turn
+        try:
+            os.makedirs(STATE_DIR, exist_ok=True)
+            with open(ERROR_LOG, "w") as fh:
+                fh.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {sys.argv[1]}: {exc}\n")
+        except OSError:
+            pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

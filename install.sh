@@ -125,7 +125,7 @@ fi
 # 7. Install npm global tools
 if command -v npm >/dev/null 2>&1; then
   echo "Installing npm global packages..."
-  npm install -g @anthropic-ai/claude-code @toon-format/cli 2>/dev/null || true
+  npm install -g @anthropic-ai/claude-code @earendil-works/pi-coding-agent 2>/dev/null || true
 else
   echo "npm not found. Install Node via mise ('mise use -g node@lts') then re-run."
 fi
@@ -136,6 +136,14 @@ if command -v uv >/dev/null 2>&1; then
   uv tool install mermaid-ascii 2>/dev/null || true
 else
   echo "uv not available, skipping mermaid-ascii."
+fi
+
+# 8b. Seed Pi settings (regular TUI mode so terminal text selection works)
+if command -v node >/dev/null 2>&1; then
+  echo "Seeding Pi settings..."
+  node "$DOTFILES/scripts/pi-settings-seed.mjs"
+else
+  echo "node not found, skipping Pi settings. Install Node then re-run."
 fi
 
 # 9. Install Antidote and generate the zsh plugin bundle.

@@ -92,6 +92,50 @@ systemctl --user list-timers
 systemctl --user start daily-log-sync.service
 ```
 
+## Claude Code Speech (macOS)
+
+Speaks Claude Code output aloud so you can work by ear instead of reading.
+
+| Script | Purpose |
+|--------|---------|
+| `claude-speak` | Hook entrypoint. `hook-stop` speaks the response, `hook-notify` speaks alerts |
+| `speak-toggle` | Live on/off switch, voice picker, status |
+
+**Turn it on / off** (takes effect immediately, no Claude Code restart):
+
+```bash
+speak-toggle          # toggle full-response speech
+speak-toggle on|off
+speak-toggle status   # what's on, which voice, last error
+speak-toggle stop     # kill the current utterance
+speak-toggle test     # audition the voice
+speak-toggle voice Daniel 175
+speak-toggle notify off
+```
+
+`CLAUDE_SPEAK=1` in a shell force-enables response speech for Claude Code
+sessions launched from it; `CLAUDE_SPEAK=0` force-disables. The config file is
+re-read every turn, so `speak-toggle` wins for already-running sessions.
+
+**Defaults:** notifications ON (permission prompts, idle, agent-needs-input),
+full responses OFF. Responses are cleaned before speaking (code blocks become
+"code block", paths become the bare file name, URLs become "a link", hashes
+become "an ID", markdown markers are dropped) and capped at 60 words with an
+"and N more words on screen" tail. A new turn kills the previous utterance, so
+speech never stacks.
+
+**Wiring** — `~/.claude/settings.json`, `hooks.Stop` and `hooks.Notification`:
+
+```json
+{ "type": "command", "command": "/Users/ianburke/dotfiles/scripts/claude-speak hook-stop", "timeout": 5 }
+{ "type": "command", "command": "/Users/ianburke/dotfiles/scripts/claude-speak hook-notify", "timeout": 5 }
+```
+
+State in `~/.claude/speak/`: `config.json` (every key required, no code-side
+defaults), `speaking.pid`, `error.log`. The hook path never blocks a turn and
+always exits 0; failures land in `error.log` and surface via `speak-toggle
+status`. `CLAUDE_SPEAK_DEBUG=1` appends raw hook payloads to `payloads.jsonl`.
+
 ## Other Scripts
 
 | Script | Purpose |

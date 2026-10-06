@@ -1,0 +1,26 @@
+#!/bin/bash
+# Kills orphaned headless Playwright Chrome instances and their crashpad
+# handlers. These leak when playwright sessions don't close their browser
+# context, and pile up until the real Chrome.app hangs trying to launch.
+set -euo pipefail
+
+MIN_AGE_MIN=60
+
+kill_matching() {
+  local pattern="$1"
+  local pids
+  pids=$(pgrep -f "$pattern" || true)
+  [ -z "$pids" ] && return 0
+  while read -r pid; do
+    local etime
+    etime=$(ps -o etimes= -p "$pid" 2>/dev/null | tr -d ' ') || continue
+    [ -z "$etime" ] && continue
+    if [ "$etime" -ge $((MIN_AGE_MIN * 60)) ]; then
+      echo "$(date '+%Y-%m-%d %H:%M:%S') killing pid $pid (age ${etime}s): $pattern"
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+  done <<< "$pids"
+}
+
+kill_matching "playwright_chromiumdev_profile"
+kill_matching "Google Chrome.app/Contents/Frameworks/.*chrome_crashpad_handler.*Chrome/Crashpad"

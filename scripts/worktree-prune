@@ -1,0 +1,98 @@
+#!/bin/bash
+# Retires dead git worktrees through wtp (never raw `git worktree remove`).
+# A worktree is DEAD only when ALL hold:
+#   - it lives under <repo>/worktrees/ (wtp-managed) and is not staging/main
+#   - its branch is merged into origin/<default> OR no longer exists on origin
+#   - `git status --porcelain` is empty (wtp remove refuses dirty trees anyway)
+#   - nothing is unpushed (branch on origin: origin/<b>..<b> is 0;
+#     branch gone: origin/<default>..<b> is 0, i.e. every commit is upstream)
+#   - untouched for CUTOFF_DAYS (last commit, and the tree root / .git mtimes)
+#   - no process has its cwd inside it, and no deploy lock exists
+# Detached HEAD, dirty, unpushed, in-use and protected trees are REFUSED and listed.
+# Default is a dry run; --apply removes. --allow-throwaway lets qa/ and scratch/
+# trees drop their unpushed one-off commits (OFF until Ian rules on it).
+set -euo pipefail
+
+CUTOFF_DAYS=3
+APPLY=no
+ALLOW_THROWAWAY=no
+for a in "$@"; do
+  case "$a" in
+    --apply) APPLY=yes ;;
+    --dry-run) APPLY=no ;;
+    --allow-throwaway) ALLOW_THROWAWAY=yes ;;
+    --cutoff=*) CUTOFF_DAYS="${a#--cutoff=}" ;;
+    *) echo "unknown arg $a" >&2; exit 2 ;;
+  esac
+done
+
+# repo:default-branch
+REPOS=(
+  "/Users/ianburke/Documents/GitHub/narrator-ai-v1:staging"
+  "/Users/ianburke/Documents/GitHub/PLEXI:main"
+  "/Users/ianburke/Documents/GitHub/stint:main"
+  "/Users/ianburke/Documents/GitHub/nooise:main"
+)
+LOG=/tmp/worktree-prune.log
+NOW=$(date +%s)
+CUTOFF_S=$((CUTOFF_DAYS * 86400))
+
+log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*" | tee -a "$LOG"; }
+
+if ls /tmp/narrator-ai-v1-*-deploy.lock >/dev/null 2>&1; then
+  log "REFUSED run: a deploy lock exists"; exit 3
+fi
+CWDS=$(lsof -d cwd -Fn 2>/dev/null | grep '^n/' | cut -c2- | sort -u || true)
+
+removed=0; removed_kb=0; refused=0
+log "worktree-prune start (cutoff ${CUTOFF_DAYS}d, apply=$APPLY, throwaway=$ALLOW_THROWAWAY)"
+for entry in "${REPOS[@]}"; do
+  repo="${entry%%:*}"; base="${entry##*:}"
+  [ -d "$repo/.git" ] || continue
+  git -C "$repo" fetch -q --prune origin 2>/dev/null || { log "SKIP $repo: fetch failed"; continue; }
+  while IFS= read -r p; do
+    case "$p" in "$repo"/worktrees/*) ;; *) continue ;; esac
+    name="${p#"$repo"/worktrees/}"
+    [ -d "$p" ] || { log "PRUNE-STALE $repo $name (dir missing)"; [ "$APPLY" = yes ] && git -C "$repo" worktree prune; continue; }
+    branch=$(git -C "$p" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')
+    reason=""
+    if [ "$name" = staging ] || [ "$name" = main ] || [ "$branch" = staging ] || [ "$branch" = main ]; then reason="protected"
+    elif [ "$branch" = HEAD ]; then reason="detached"
+    elif [ -n "$(git -C "$p" status --porcelain 2>/dev/null)" ]; then reason="dirty"
+    else
+      if git -C "$repo" show-ref -q --verify "refs/remotes/origin/$branch"; then
+        unpushed=$(git -C "$p" rev-list --count "origin/$branch..$branch")
+        if git -C "$repo" merge-base --is-ancestor "$branch" "origin/$base"; then merged=yes; else merged=no; fi
+        if [ "$merged" = no ]; then reason="unmerged, branch on origin"; fi
+      else
+        unpushed=$(git -C "$p" rev-list --count "origin/$base..$branch")
+      fi
+      if [ -z "$reason" ] && [ "${unpushed:-0}" != 0 ]; then
+        if [ "$ALLOW_THROWAWAY" = yes ] && [[ "$name" == qa/* || "$name" == scratch/* ]]; then reason=""; else reason="unpushed $unpushed"; fi
+      fi
+      if [ -z "$reason" ]; then
+        last=$(git -C "$p" log -1 --format=%ct 2>/dev/null || echo "$NOW")
+        m1=$(stat -f %m "$p"); m2=$(stat -f %m "$p/.git")
+        newest=$last; [ "$m1" -gt "$newest" ] && newest=$m1; [ "$m2" -gt "$newest" ] && newest=$m2
+        age_d=$(( (NOW - newest) / 86400 ))
+        [ $((NOW - newest)) -lt "$CUTOFF_S" ] && reason="touched ${age_d}d ago (< ${CUTOFF_DAYS}d)"
+      fi
+      if [ -z "$reason" ] && printf '%s\n' "$CWDS" | grep -q "^$p"; then reason="in use (process cwd)"; fi
+    fi
+    kb=$(du -xsk "$p" 2>/dev/null | cut -f1)
+    if [ -n "$reason" ]; then
+      refused=$((refused + 1)); log "KEEP   $(printf '%6.1f' "$(echo "$kb/1048576" | bc -l)")G $name [$branch] $reason"
+    else
+      log "DEAD   $(printf '%6.1f' "$(echo "$kb/1048576" | bc -l)")G $name [$branch] merged/gone, clean, pushed, ${age_d}d"
+      if [ "$APPLY" = yes ]; then
+        if (cd "$repo" && command wtp remove "$name" >/dev/null 2>>"$LOG"); then
+          removed=$((removed + 1)); removed_kb=$((removed_kb + kb)); log "REMOVED $name"
+        else
+          log "FAILED  $name (wtp remove refused; left in place)"
+        fi
+      fi
+    fi
+  done < <(git -C "$repo" worktree list --porcelain | awk '/^worktree /{print substr($0,10)}')
+  [ "$APPLY" = yes ] && git -C "$repo" worktree prune
+done
+log "worktree-prune done: removed $removed ($((removed_kb / 1048576)) GiB), refused $refused, apply=$APPLY"

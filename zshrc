@@ -17,6 +17,7 @@ fi
 # ------------------------------------------------------------------------------
 export PROMPT_EOL_MARK=""
 export GH_NO_UPDATE_NOTIFIER=1
+export CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1
 export DOTFILES="$HOME/dotfiles"
 export EDITOR='nvim'
 export VISUAL='nvim'
@@ -32,6 +33,7 @@ export PATH="/opt/homebrew/bin:$PATH"
 export PATH="/opt/homebrew/opt/trash/bin:$PATH"
 export PATH="/opt/homebrew/opt/python@3.13/bin:$PATH"
 alias python='python3'
+alias rw='railway'
 export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:$PATH"
 export PATH="$DOTFILES/scripts:$PATH"
 export PATH="$DOTFILES/scripts/wip:$PATH"
@@ -146,19 +148,21 @@ bindkey "^X^E" edit-command-line
 # ALIASES & FUNCTIONS
 # ------------------------------------------------------------------------------
 # General
-alias toonl='jq -s "." | toon'
 alias zshconfig="nvim $DOTFILES/zshrc"
 alias dotconfig="nvim $DOTFILES/zshrc"
 alias nvimconfig='nvim ~/.config/nvim/init.lua'
 alias n='nvim .'
 alias k='kiro .'
-alias ls='eza -l --icons --git --header --group-directories-first --color=always'
+alias ls='eza -l --no-permissions --no-user --icons --git --header --group-directories-first --color=always'
 alias grep='grep --color=always'
 alias rg='rg -i'
 alias files='spf'
 alias c='IS_DEMO=1 claude --model sonnet --dangerously-skip-permissions --allow-dangerously-skip-permissions'
-alias cs='IS_DEMO=1 claude --model haiku --dangerously-skip-permissions --allow-dangerously-skip-permissions'
+# Claude tiers (Small / Medium / Large) — single source of truth for agent model routing (babysitter skill launches panes with these)
+alias cs='IS_DEMO=1 claude --model sonnet --dangerously-skip-permissions --allow-dangerously-skip-permissions'
+alias cm='IS_DEMO=1 claude --model opus --dangerously-skip-permissions --allow-dangerously-skip-permissions'
 alias cl='IS_DEMO=1 claude --model claude-opus-5-5 --dangerously-skip-permissions --allow-dangerously-skip-permissions'
+alias me='IS_DEMO=1 claude --model opus --dangerously-skip-permissions --allow-dangerously-skip-permissions --append-system-prompt-file ~/Documents/github/daily_log/ME_SYSTEM_PROMPT.md "Run your session start ritual now."'
 
 # Pi models (Small / Medium / Large)
 alias ps='pi --provider ollama --model gemma4:e4b --tools read,find,ls --no-skills --system-prompt "You are a code assistant. Answer concisely."'
@@ -208,6 +212,12 @@ capsule() {
 }
 alias here='pwd | pbcopy && echo "$(pwd) copied to clipboard"'
 alias x='clear'
+
+# duaiagents.davenport.edu only routes via the DU laptop: SOCKS tunnel + isolated Chrome instance (~/.chrome-du) proxied through it.
+du-chrome() {
+  nc -z localhost 1080 2>/dev/null || ssh -f -N -o ExitOnForwardFailure=yes -D 1080 dulaptop || { echo "du-chrome: tunnel to dulaptop failed (check ~/.ssh/config Host dulaptop)" >&2; return 1; }
+  open -na "Google Chrome" --args --user-data-dir="$HOME/.chrome-du" --proxy-server="socks5://localhost:1080" "$@"
+}
 alias py='python3'
 alias ..='cd ..'
 alias ...='cd ../..'
@@ -304,9 +314,23 @@ gs() {
 
   _gs_mini_diff() {
     local diff_raw="$1"
-    local count
-    count=$(printf '%s\n' "$diff_raw" | grep -E '^[+-]' | grep -cvE '^(\+\+\+|---)' || true)
-    [[ $count -eq 0 || $count -gt 10 ]] && return
+    local added removed count
+    added=$(printf '%s\n' "$diff_raw" | command grep -cE '^\+[^+]')
+    removed=$(printf '%s\n' "$diff_raw" | command grep -cE '^-[^-]')
+    count=$(( added + removed ))
+    [[ $count -eq 0 ]] && return
+
+    if [[ $count -gt 10 ]]; then
+      printf "    ${gray}%s${reset} ${b_green}+%s${reset} ${b_red}-%s${reset}\n" "abbreviated" "$added" "$removed"
+      printf '%s\n' "$diff_raw" | command grep -E '^[+-]' | command grep -vE '^(\+\+\+|---)' | head -3 | while IFS= read -r dline; do
+        case "$dline" in
+          +*) printf "    ${dim}${green}+${reset} ${dim}%s${reset}\n" "${dline:1}" ;;
+          -*) printf "    ${dim}${red}-${reset} ${dim}%s${reset}\n"  "${dline:1}" ;;
+        esac
+      done
+      return
+    fi
+
     while IFS= read -r dline; do
       case "$dline" in
         diff\ --git*) printf "    ${gray}╌ %s${reset}\n" "${dline##* b/}" ;;
@@ -428,15 +452,14 @@ yeet() {
     return 0
   fi
 
-  echo "→ generating commit message..."
-  local prompt="You are a git commit assistant. Given the staged diff below, write ONE conventional commit message (type(scope): description, imperative mood, max 72 chars, no trailing period, no markdown, no code fences). Output ONLY the commit message subject line, nothing else.
+  local prompt="Output ONLY a git commit subject line for the diff below. Format: type(scope): description, imperative mood, max 72 chars, no period, no markdown, no explanation, no reasoning, nothing but the subject line.
 
 DIFF:
 $diff"
 
   local payload=$(python3 -c '
 import json, sys
-print(json.dumps({"model": "openai/gpt-oss-20b:free", "messages": [{"role": "user", "content": sys.argv[1]}]}))
+print(json.dumps({"model": "openai/gpt-oss-20b", "messages": [{"role": "user", "content": sys.argv[1]}], "reasoning": {"exclude": True}}))
 ' "$prompt")
 
   local response=$(curl -s https://openrouter.ai/api/v1/chat/completions \
@@ -454,8 +477,8 @@ except Exception:
 ')
 
   if [[ -z "$msg" ]]; then
-    echo "yeet: failed to generate commit message"
-    echo "$response"
+    local err=$(echo "$response" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("error",{}).get("message","unknown error"))' 2>/dev/null)
+    echo "yeet: failed to generate commit message (${err:-unknown error})"
     return 1
   fi
 
@@ -520,6 +543,19 @@ alias stars='astroterm --color --constellations --speed 1000 --fps 64 --city Det
 alias xx='plexi pane close'
 alias co='codex -s danger-full-access'
 alias nnj='com "new nooise jam"'
+# Connect to Greg's Railway Cloud Agent; `greg --sleep` stops its VM.
+greg() {
+  if [[ "$1" == "--sleep" ]]; then
+    shift
+    railway ca sleep rlwy-cloud-gpm "$@"
+  else
+    railway ca ssh rlwy-cloud-gpm "$@"
+  fi
+}
+# Codex tiers (Small / Medium / Large)
+alias cos='codex -s danger-full-access -m gpt-5.6-luna'
+alias com='codex -s danger-full-access -m gpt-5.6-terra'
+alias col='codex -s danger-full-access -m gpt-6-astra'
 alias mandelbrot='python3 $DOTFILES/scripts/mandelbrot.py'
 alias stars-now='astroterm --color --constellations --speed 1 --city Detroit -m'
 
@@ -696,7 +732,7 @@ bindkey '^E' autosuggest-accept       # Ctrl + E: Accept full suggestion
 # ------------------------------------------------------------------------------
 # ZSH COMPLETION CONFIGURATION
 # ------------------------------------------------------------------------------
-LISTMAX=0
+LISTMAX=10000
 zstyle ':completion:*' menu select
 zstyle ':completion:*' file-sort modification
 zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'

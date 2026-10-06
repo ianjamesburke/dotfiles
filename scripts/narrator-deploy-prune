@@ -1,0 +1,26 @@
+#!/bin/bash
+# Prunes stale narrator-ai-v1 deploy checkouts. scripts/deploy-checkout.sh
+# materialises one disposable clone per deploy at $TMPDIR/narrator-deploy-<sha>-XXXXXX
+# and removes it on EXIT/INT/TERM; a SIGKILL or a hard crash leaves it behind.
+# Only that glob, only dirs older than MIN_AGE_HOURS (an in-flight deploy is
+# always younger), never the persistent npm cache next to them.
+set -euo pipefail
+
+MIN_AGE_HOURS=24
+TMP="${TMPDIR:-/tmp}"
+KEEP="narrator-deploy-npm-cache"
+
+before=$(df -k "$TMP" | awk 'NR==2 {print $4}')
+freed_kb=0
+n=0
+while IFS= read -r dir; do
+  [ -z "$dir" ] && continue
+  [ "$(basename "$dir")" = "$KEEP" ] && continue
+  kb=$(du -sk "$dir" 2>/dev/null | cut -f1 || echo 0)
+  rm -rf "$dir"
+  freed_kb=$((freed_kb + kb))
+  n=$((n + 1))
+done < <(find "$TMP" -maxdepth 1 -type d -name 'narrator-deploy-*' -mmin +$((MIN_AGE_HOURS * 60)))
+after=$(df -k "$TMP" | awk 'NR==2 {print $4}')
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') pruned $n dirs, $((freed_kb / 1024)) MB; free before $((before / 1024 / 1024)) GB, after $((after / 1024 / 1024)) GB"

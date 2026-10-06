@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""Control the claude-speak hook. Takes effect immediately, no restart.
+
+    speak-toggle            toggle response speech on/off
+    speak-toggle on|off     set response speech explicitly
+    speak-toggle status     show config, last error, and whether a voice is speaking
+    speak-toggle notify on|off
+    speak-toggle voice <name> [rate]
+    speak-toggle test [text]     speak something now, to audition the voice
+    speak-toggle stop            kill the current utterance
+
+This is the loud surface: it creates the config if absent and reports
+misconfiguration. The hook path stays silent by design.
+"""
+
+import importlib.util
+import json
+import os
+import subprocess
+import sys
+from importlib.machinery import SourceFileLoader
+
+# claude-speak has a hyphen and no .py extension, so it needs an explicit
+# loader; spec_from_file_location alone returns None for unknown suffixes.
+_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "claude-speak")
+_spec = importlib.util.spec_from_file_location(
+    "claude_speak", _PATH, loader=SourceFileLoader("claude_speak", _PATH)
+)
+speak_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(speak_mod)
+
+
+def ensure_config():
+    if os.path.exists(speak_mod.CONFIG_PATH):
+        return
+    os.makedirs(speak_mod.STATE_DIR, exist_ok=True)
+    with open(speak_mod.CONFIG_PATH, "w") as fh:
+        json.dump(speak_mod.CONFIG_TEMPLATE, fh, indent=2)
+        fh.write("\n")
+    print(f"created {speak_mod.CONFIG_PATH}")
+
+
+def save(cfg):
+    with open(speak_mod.CONFIG_PATH, "w") as fh:
+        json.dump(cfg, fh, indent=2)
+        fh.write("\n")
+
+
+def status(cfg):
+    print(f"responses     {'ON' if cfg['speak_responses'] else 'OFF'}")
+    print(f"notifications {'ON' if cfg['speak_notifications'] else 'OFF'} {cfg['notification_types']}")
+    print(f"voice         {cfg['voice']} at {cfg['rate']} wpm, cap {cfg['max_words']} words")
+    env = os.environ.get("CLAUDE_SPEAK")
+    if env is not None:
+        print(f"CLAUDE_SPEAK={env} (overrides responses in this shell only)")
+    print(f"config        {speak_mod.CONFIG_PATH}")
+    if os.path.exists(speak_mod.ERROR_LOG):
+        with open(speak_mod.ERROR_LOG) as fh:
+            print(f"last error    {fh.read().strip()}")
+
+
+def main(argv):
+    ensure_config()
+    try:
+        cfg = speak_mod.load_config()
+    except Exception as exc:
+        sys.stderr.write(f"claude-speak config is unusable: {exc}\n")
+        return 1
+
+    cmd = argv[0] if argv else "toggle"
+
+    if cmd == "toggle":
+        cfg["speak_responses"] = not cfg["speak_responses"]
+    elif cmd in ("on", "off"):
+        cfg["speak_responses"] = cmd == "on"
+    elif cmd == "notify":
+        if len(argv) != 2 or argv[1] not in ("on", "off"):
+            sys.stderr.write("usage: speak-toggle notify on|off\n")
+            return 1
+        cfg["speak_notifications"] = argv[1] == "on"
+    elif cmd == "voice":
+        if len(argv) not in (2, 3):
+            sys.stderr.write("usage: speak-toggle voice <name> [rate]\n")
+            return 1
+        installed = subprocess.run(
+            ["say", "-v", "?"], capture_output=True, text=True, check=False
+        ).stdout
+        names = {line.split("  ")[0].strip() for line in installed.splitlines() if line.strip()}
+        if argv[1] not in names:
+            sys.stderr.write(f"voice '{argv[1]}' is not installed. `say -v '?'` lists what is.\n")
+            return 1
+        cfg["voice"] = argv[1]
+        if len(argv) == 3:
+            cfg["rate"] = int(argv[2])
+    elif cmd == "test":
+        text = " ".join(argv[1:]) or (
+            "I rewired the transcript parser so it reads the last assistant "
+            "message directly. Two tests still fail on the timeout path."
+        )
+        speak_mod.speak(speak_mod.clean(text), cfg)
+        print(f"speaking as {cfg['voice']} at {cfg['rate']} wpm")
+        return 0
+    elif cmd == "stop":
+        speak_mod.kill_previous()
+        print("stopped")
+        return 0
+    elif cmd == "status":
+        status(cfg)
+        return 0
+    else:
+        sys.stderr.write(__doc__)
+        return 1
+
+    save(cfg)
+    status(cfg)
+    if not cfg["speak_responses"]:
+        speak_mod.kill_previous()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
