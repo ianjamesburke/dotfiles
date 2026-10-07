@@ -52,15 +52,14 @@ co() { cd "$(cont open "$1")" || return; }
 [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
 
 # ------------------------------------------------------------------------------
-# COMPLETION INIT (skip audit for fast startup; run 'compinit' manually after installing new tools)
-# ------------------------------------------------------------------------------
-autoload -Uz compinit
-compinit -C
-
-# ------------------------------------------------------------------------------
 # PLUGIN MANAGEMENT (Antidote)
+# zsh-autocomplete owns compinit; an earlier compinit makes it skip its rescan,
+# freezing the dump so new tools never complete. Lite skips zsh-autocomplete, so
+# it runs compinit itself (-C for speed; run 'compinit' after installing tools).
 # ------------------------------------------------------------------------------
 if [[ "$(hostname)" == "omarchy" ]]; then
+    autoload -Uz compinit
+    compinit -C
     [[ -f "$DOTFILES/zsh_plugins_lite.zsh" ]] && source "$DOTFILES/zsh_plugins_lite.zsh"
 else
     [[ -f "$DOTFILES/zsh_plugins.zsh" ]] && source "$DOTFILES/zsh_plugins.zsh"
