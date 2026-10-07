@@ -882,3 +882,7 @@ go-sleep() {
   sudo pmset -b sleep 1 disablesleep 0
   sudo pmset sleepnow
 }
+
+# dl <url>: video to ~/Downloads. dla <url>: audio (mp3) to ~/Downloads.
+dl() { yt-dlp -P ~/Downloads -o "%(title)s.%(ext)s" "$@"; }
+dla() { yt-dlp -x --audio-format mp3 -P ~/Downloads -o "%(title)s.%(ext)s" "$@"; }
