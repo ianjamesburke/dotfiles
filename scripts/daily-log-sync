@@ -26,6 +26,11 @@ fi
 
 cd "$LOG_DIR"
 
+# Recover from an interrupted rebase from a previous run
+if [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then
+    git rebase --abort 2>/dev/null || true
+fi
+
 # Check for any changes (staged, unstaged, or untracked)
 if git diff --quiet && git diff --cached --quiet && [ -z "$(git ls-files --others --exclude-standard)" ]; then
     # Nothing to commit, but still try to pull in case remote has changes
@@ -43,5 +48,8 @@ git diff --cached --quiet || git commit -m "auto-sync $(date +%Y-%m-%d\ %H:%M) (
 if git pull --rebase --quiet 2>/dev/null; then
     git push --quiet 2>/dev/null || echo "Warning: push failed, will retry next cycle" >&2
 else
-    echo "Warning: pull failed, changes committed locally" >&2
+    # Never leave a half-done rebase behind (Sep 29 2026: stuck rebase left the
+    # repo on a detached HEAD and nothing was pushed for 2 weeks).
+    git rebase --abort 2>/dev/null || true
+    echo "Warning: pull failed, rebase aborted, changes committed locally" >&2
 fi
