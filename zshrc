@@ -163,23 +163,18 @@ alias cm='IS_DEMO=1 claude --model opus --dangerously-skip-permissions --allow-d
 alias cl='IS_DEMO=1 claude --model claude-opus-5-5 --dangerously-skip-permissions --allow-dangerously-skip-permissions'
 alias me='IS_DEMO=1 claude --model opus --dangerously-skip-permissions --allow-dangerously-skip-permissions --append-system-prompt-file ~/Documents/github/daily_log/ME_SYSTEM_PROMPT.md "Run your session start ritual now."'
 
-# Pi models (Small / Medium / Large)
-alias ps='pi --provider ollama --model gemma4:e4b --tools read,find,ls --no-skills --system-prompt "You are a code assistant. Answer concisely."'
-alias pm='pi --provider openrouter --model minimax/minimax-m3'
-alias pl='pi --provider openrouter --model openai/gpt-5.4 --thinking minimal'
-
 # Pi router tiers. Keep these stable; ~/.pi/agent/extensions/subscription-router.ts owns model selection and fallbacks.
 alias pis='pi --provider ian-router --model small --thinking low'
 alias pim='pi --provider ian-router --model medium --thinking medium'
 alias pil='pi --provider ian-router --model large --thinking high'
 
-# Clipboard — moved from p → pp since p is now Pi Medium
+# Clipboard — moved from p → pp since p is Pi Medium.
 if [[ "$IS_MACOS" == "true" ]]; then
   alias pp='pbpaste'
 elif [[ "$IS_LINUX" == "true" ]]; then
   alias pp='wl-paste'
 fi
-alias p='pm'
+alias p='pim'
 
 # Re-run last command and copy a capsule: timestamp, dir, command, output
 # Safety: route rm through trash; block nukes
