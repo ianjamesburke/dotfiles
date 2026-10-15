@@ -168,6 +168,11 @@ alias ps='pi --provider ollama --model gemma4:e4b --tools read,find,ls --no-skil
 alias pm='pi --provider openrouter --model minimax/minimax-m3'
 alias pl='pi --provider openrouter --model openai/gpt-5.4 --thinking minimal'
 
+# Pi router tiers. Keep these stable; ~/.pi/agent/extensions/subscription-router.ts owns model selection and fallbacks.
+alias pis='pi --provider ian-router --model small --thinking low'
+alias pim='pi --provider ian-router --model medium --thinking medium'
+alias pil='pi --provider ian-router --model large --thinking high'
+
 # Clipboard — moved from p → pp since p is now Pi Medium
 if [[ "$IS_MACOS" == "true" ]]; then
   alias pp='pbpaste'
