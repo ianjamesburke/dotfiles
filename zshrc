@@ -560,6 +560,7 @@ greg() {
 # Codex tiers (Small / Medium / Large)
 alias cos='codex -s danger-full-access -m gpt-5.6-luna'
 alias com='codex -s danger-full-access -m gpt-5.6-terra'
+alias agy='agy --dangerously-skip-permissions'
 alias col='codex -s danger-full-access -m gpt-6-astra'
 alias mandelbrot='python3 $DOTFILES/scripts/mandelbrot.py'
 alias stars-now='astroterm --color --constellations --speed 1 --city Detroit -m'
