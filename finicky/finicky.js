@@ -1,8 +1,10 @@
-// All links open in Chrome "personal" (ianjamesburke@gmail.com) unless a handler below says otherwise.
+// Template. Run `finicky` to pick the default Chrome profile; it writes ~/.finicky.js (untracked) from this file.
+const DEFAULT_PROFILE = "personal";
+
 export default {
   defaultBrowser: {
     name: "Google Chrome",
-    profile: "personal",
+    profile: DEFAULT_PROFILE,
   },
   handlers: [],
 };

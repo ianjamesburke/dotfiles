@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""Pick the default Chrome profile for Finicky. Writes ~/.finicky.js from the tracked template."""
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+TEMPLATE = Path.home() / "dotfiles/finicky/finicky.js"
+TARGET = Path.home() / ".finicky.js"
+LOCAL_STATE = Path.home() / "Library/Application Support/Google/Chrome/Local State"
+DEFAULT_LINE = 'const DEFAULT_PROFILE = "personal";'
+
+
+def die(msg: str) -> None:
+    sys.exit(f"finicky: {msg}")
+
+
+def profiles() -> dict[str, str]:
+    try:
+        cache = json.loads(LOCAL_STATE.read_text())["profile"]["info_cache"]
+    except (OSError, KeyError, json.JSONDecodeError) as e:
+        die(f"cannot read Chrome profiles from {LOCAL_STATE}: {e}")
+    return {v["name"]: v.get("user_name", "") for v in cache.values()}
+
+
+def pick(names: dict[str, str]) -> str:
+    rows = "\n".join(f"{n}\t{e}" for n, e in names.items())
+    r = subprocess.run(
+        ["fzf", "--prompt=default Chrome profile> ", "--delimiter=\t", "--with-nth=1,2"],
+        input=rows, text=True, capture_output=True,
+    )
+    if r.returncode != 0:
+        die("no profile selected")
+    return r.stdout.split("\t")[0]
+
+
+def main() -> None:
+    names = profiles()
+    choice = sys.argv[1] if len(sys.argv) > 1 else pick(names)
+    if choice not in names:
+        die(f"unknown profile {choice!r}; available: {', '.join(names)}")
+    src = TEMPLATE.read_text()
+    if src.count(DEFAULT_LINE) != 1:
+        die(f"{TEMPLATE} must contain exactly one line: {DEFAULT_LINE}")
+    TARGET.unlink(missing_ok=True)  # replaces the old symlink on first run
+    TARGET.write_text(src.replace(DEFAULT_LINE, f"const DEFAULT_PROFILE = {json.dumps(choice)};"))
+    print(f"Finicky default Chrome profile: {choice}")
+
+
+main()
