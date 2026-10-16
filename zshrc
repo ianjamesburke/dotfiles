@@ -546,7 +546,7 @@ alias logsprod='fly logs -c fly.prod.toml'
 # Fun
 alias stars='astroterm --color --constellations --speed 1000 --fps 64 --city Detroit -m'
 alias xx='plexi pane close'
-alias co='codex -s danger-full-access'
+alias co='codex --no-daemon -s danger-full-access'
 alias nnj='com "new nooise jam"'
 # Connect to Greg's Railway Cloud Agent; `greg --sleep` stops its VM.
 greg() {
@@ -558,10 +558,10 @@ greg() {
   fi
 }
 # Codex tiers (Small / Medium / Large)
-alias cos='codex -s danger-full-access -m gpt-5.6-luna'
-alias com='codex -s danger-full-access -m gpt-5.6-terra'
+alias cos='codex --no-daemon -s danger-full-access -m gpt-5.6-luna'
+alias com='codex --no-daemon -s danger-full-access -m gpt-5.6-terra'
 alias agy='agy --dangerously-skip-permissions'
-alias col='codex -s danger-full-access -m gpt-6-astra'
+alias col='codex --no-daemon -s danger-full-access -m gpt-6-astra'
 alias mandelbrot='python3 $DOTFILES/scripts/mandelbrot.py'
 alias stars-now='astroterm --color --constellations --speed 1 --city Detroit -m'
 
@@ -867,9 +867,6 @@ _cont_complete() {
   compadd -- "${labels[@]}"
 }
 compdef _cont_complete cont
-
-# Parallax CLI tab completion
-[[ -f ~/.cache/zsh/parallax-completion.zsh ]] && source ~/.cache/zsh/parallax-completion.zsh
 
 # Limit Cargo build parallelism to reduce heat
 export RUSTC_WRAPPER=sccache
