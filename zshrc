@@ -152,7 +152,13 @@ alias dotconfig="nvim $DOTFILES/zshrc"
 alias nvimconfig='nvim ~/.config/nvim/init.lua'
 alias n='nvim .'
 alias k='kiro .'
-alias ls='eza -l --no-permissions --no-user --icons --git --header --group-directories-first --color=always'
+if command -v eza >/dev/null 2>&1; then
+  alias ls='eza -l --no-permissions --no-user --icons --git --header --group-directories-first --color=always'
+elif ls --group-directories-first -d . >/dev/null 2>&1; then
+  alias ls='ls -l --group-directories-first --color=auto'
+else
+  alias ls='ls -lG'
+fi
 alias grep='grep --color=always'
 alias rg='rg -i'
 alias files='spf'
@@ -773,8 +779,12 @@ chpwd_ls() {
   if git rev-parse --git-dir &>/dev/null 2>&1; then
     gs
   else
-    local total=$(eza -1 | wc -l | tr -d ' ')
-    eza -l --icons --git --color=always -s modified --reverse | head -5
+    local total=$(command ls -1A | wc -l | tr -d ' ')
+    if command -v eza >/dev/null 2>&1; then
+      eza -l --icons --git --color=always -s modified --reverse | head -5
+    else
+      command ls -lt | tail -n +2 | head -5
+    fi
     if (( total > 5 )); then
       echo "  … and $((total - 5)) more"
     fi
