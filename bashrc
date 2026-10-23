@@ -4,8 +4,9 @@
 case $- in *i*) ;; *) return 0 ;; esac
 
 export DOTFILES="$HOME/dotfiles"
-export EDITOR="${EDITOR:-vi}"
-export PATH="$HOME/.local/bin:$DOTFILES/scripts:$PATH"
+export PATH="$HOME/.local/bin:$HOME/.local/nvim/bin:$DOTFILES/scripts:$PATH"
+
+command -v nvim >/dev/null 2>&1 && export EDITOR=nvim VISUAL=nvim || export EDITOR=vi
 
 # Prefer zsh when installed (full config lives in zshrc). No chsh needed.
 if [ -z "$ZSH_VERSION" ] && [ -z "$DOTFILES_NO_ZSH" ] && command -v zsh >/dev/null 2>&1; then

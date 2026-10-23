@@ -96,6 +96,26 @@ if [ "$OS" = "Linux" ]; then
   fi
 fi
 
+# ── Optional: neovim without root (Linux) ────────────────────────────
+if [ "$OS" = "Linux" ] && ! command -v nvim >/dev/null 2>&1; then
+  case "$(uname -m)" in
+    x86_64) NVIM_ARCH=x86_64 ;;
+    aarch64|arm64) NVIM_ARCH=arm64 ;;
+    *) NVIM_ARCH="" ;;
+  esac
+  if [ -z "$NVIM_ARCH" ]; then
+    echo "No prebuilt neovim for $(uname -m); skipping."
+  elif ask "Neovim (user install)" "Editor. Downloads the official release tarball into ~/.local/nvim. No root needed, other users unaffected."; then
+    NVIM_URL="https://github.com/neovim/neovim/releases/latest/download/nvim-linux-$NVIM_ARCH.tar.gz"
+    mkdir -p "$HOME/.local/nvim"
+    curl -fsSL "$NVIM_URL" | tar -xz -C "$HOME/.local/nvim" --strip-components=1
+    if ! "$HOME/.local/nvim/bin/nvim" --version >/dev/null 2>&1; then
+      echo "Neovim installed but will not run (likely an old glibc: $(ldd --version | head -1)). Removing ~/.local/nvim." >&2
+      rm -rf "$HOME/.local/nvim"
+    fi
+  fi
+fi
+
 # ── Optional: Homebrew + Brewfile (macOS) ────────────────────────────
 if [ "$OS" = "Darwin" ]; then
   if ask "Homebrew + Brewfile" "Homebrew is an app store for developer tools. Installs everything in ~/dotfiles/Brewfile (eza, bat, fzf, ffmpeg, fonts, ...)."; then

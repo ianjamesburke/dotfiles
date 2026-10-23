@@ -36,7 +36,9 @@ To stay in bash: `export DOTFILES_NO_ZSH=1` before the source line.
 
 ## Structure
 
-- `zshrc` — main config (sourced by `~/.zshrc`)
+- `zshrc` — main zsh config (sourced by `~/.zshrc`)
+- `aliases.sh` — all aliases, shared by bash and zsh
+- `bashrc` — bash entry point for Linux without zsh (aliases, completions)
 - `zsh_plugins.txt` — full plugin list
 - `zsh_plugins_lite.txt` — trimmed plugin list (Linux / slower machines)
 - `scripts/` — shell utilities on `$PATH` via `$DOTFILES/scripts`
