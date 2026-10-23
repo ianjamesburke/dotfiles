@@ -25,16 +25,14 @@ Portable Zsh configuration for macOS and Linux.
 curl -fsSL https://raw.githubusercontent.com/ianjamesburke/dotfiles/main/install.sh | sh
 ```
 
-This will:
-1. Clone the repo to `~/dotfiles`
-2. Install Homebrew (if missing, macOS only)
-3. Install missing `zsh` and Neovim on Linux
-4. Install [antidote](https://getantidote.github.io/) for plugin management (via Homebrew on macOS, or `~/.antidote` on Linux)
-5. Generate the plugin bundle and append a source line to `~/.zshrc`
+Core: clones to ~/dotfiles and wires your shell. Everything else (system
+packages, Homebrew, Rust, uv, npm agent CLIs, zsh plugins) is optional; the
+installer explains each one and asks. `--all` accepts everything.
 
-On Ubuntu, the installer uses `apt` and will ask for sudo when it needs to
-install `zsh` or Neovim. It does not change your login shell; run `chsh -s "$(command -v zsh)"`
-separately if you want zsh to be the default.
+On Linux it never runs sudo unless you are in an admin group and say yes. Without
+zsh, `~/.bashrc` loads `bashrc` instead, so aliases and completions still come
+along. If zsh is installed, `bashrc` hands interactive logins to it (no `chsh`).
+To stay in bash: `export DOTFILES_NO_ZSH=1` before the source line.
 
 ## Structure
 

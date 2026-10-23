@@ -22,6 +22,8 @@ export DOTFILES="$HOME/dotfiles"
 export EDITOR='nvim'
 export VISUAL='nvim'
 
+source "$DOTFILES/aliases.sh"
+
 e() {
   if [[ "$1" == *.md ]]; then
     dawn "$@"
@@ -32,8 +34,6 @@ e() {
 export PATH="/opt/homebrew/bin:$PATH"
 export PATH="/opt/homebrew/opt/trash/bin:$PATH"
 export PATH="/opt/homebrew/opt/python@3.13/bin:$PATH"
-alias python='python3'
-alias rw='railway'
 export PATH="$HOME/.local/bin:$HOME/bin:/usr/local/bin:$PATH"
 export PATH="$DOTFILES/scripts:$PATH"
 export PATH="$DOTFILES/scripts/wip:$PATH"
@@ -44,9 +44,6 @@ export PATH="$HOME/.local/nvim/bin:$PATH"
 export PATH="$HOME/.antigravity/antigravity/bin:$PATH"
 export PATH="$HOME/.opencode/bin:$PATH"
 export PATH="$HOME/.cont/bin:$PATH"
-
-unalias co 2>/dev/null
-co() { cd "$(cont open "$1")" || return; }
 
 # Rust/Cargo
 [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
@@ -147,32 +144,9 @@ bindkey "^X^E" edit-command-line
 # ALIASES & FUNCTIONS
 # ------------------------------------------------------------------------------
 # General
-alias zshconfig="nvim $DOTFILES/zshrc"
-alias dotconfig="nvim $DOTFILES/zshrc"
-alias nvimconfig='nvim ~/.config/nvim/init.lua'
-alias n='nvim .'
-alias k='kiro .'
-if command -v eza >/dev/null 2>&1; then
-  alias ls='eza -l --no-permissions --no-user --icons --git --header --group-directories-first --color=always'
-elif ls --group-directories-first -d . >/dev/null 2>&1; then
-  alias ls='ls -l --group-directories-first --color=auto'
-else
-  alias ls='ls -lG'
-fi
-alias grep='grep --color=always'
-alias rg='rg -i'
-alias files='spf'
-alias c='IS_DEMO=1 claude --model sonnet --dangerously-skip-permissions --allow-dangerously-skip-permissions'
 # Claude tiers (Small / Medium / Large) — single source of truth for agent model routing (babysitter skill launches panes with these)
-alias cs='IS_DEMO=1 claude --model sonnet --dangerously-skip-permissions --allow-dangerously-skip-permissions'
-alias cm='IS_DEMO=1 claude --model opus --dangerously-skip-permissions --allow-dangerously-skip-permissions'
-alias cl='IS_DEMO=1 claude --model claude-opus-5-5 --dangerously-skip-permissions --allow-dangerously-skip-permissions'
-alias me='IS_DEMO=1 claude --model opus --dangerously-skip-permissions --allow-dangerously-skip-permissions --append-system-prompt-file ~/Documents/github/daily_log/ME_SYSTEM_PROMPT.md "Run your session start ritual now."'
 
 # Pi router tiers. Keep these stable; ~/.pi/agent/extensions/subscription-router.ts owns model selection and fallbacks.
-alias pis='pi --provider ian-router --model small --thinking low'
-alias pim='pi --provider ian-router --model medium --thinking medium'
-alias pil='pi --provider ian-router --model large --thinking high'
 
 # Clipboard — moved from p → pp since p is Pi Medium.
 if [[ "$IS_MACOS" == "true" ]]; then
@@ -180,7 +154,6 @@ if [[ "$IS_MACOS" == "true" ]]; then
 elif [[ "$IS_LINUX" == "true" ]]; then
   alias pp='wl-paste'
 fi
-alias p='pim'
 
 # Re-run last command and copy a capsule: timestamp, dir, command, output
 # Safety: route rm through trash; block nukes
@@ -196,7 +169,6 @@ rm() {
   trash "${args[@]}"
 }
 
-alias cap='capsule'
 capsule() {
   local cmd="$(fc -ln -1)"
   local ts="$(date '+%Y-%m-%d %H:%M:%S')"
@@ -215,23 +187,14 @@ capsule() {
   fi
   echo "Copied."
 }
-alias here='pwd | pbcopy && echo "$(pwd) copied to clipboard"'
-alias x='clear'
 
 # duaiagents.davenport.edu only routes via the DU laptop: SOCKS tunnel + isolated Chrome instance (~/.chrome-du) proxied through it.
 du-chrome() {
   nc -z localhost 1080 2>/dev/null || ssh -f -N -o ExitOnForwardFailure=yes -D 1080 dulaptop || { echo "du-chrome: tunnel to dulaptop failed (check ~/.ssh/config Host dulaptop)" >&2; return 1; }
   open -na "Google Chrome" --args --user-data-dir="$HOME/.chrome-du" --proxy-server="socks5://localhost:1080" "$@"
 }
-alias py='python3'
-alias ..='cd ..'
-alias ...='cd ../..'
-alias reload='exec zsh'
 
-alias oc='opencode'
-alias code='open -a "Antigravity IDE"'
 
-alias jj='just --choose'
 
 # Run a just recipe; on failure, open Claude Code with full error context for fixing.
 jc() {
@@ -264,9 +227,6 @@ pkill-pick() {
 }
 
 # Git
-alias i='gh issue create'
-alias issues='gh issue list'
-alias go='git open'
 gs() {
   git rev-parse --git-dir &>/dev/null || { echo "not a git repo"; return 1; }
 
@@ -382,7 +342,6 @@ gs() {
 
   echo ""
 }
-alias gp='git pull'
 gd() {
   if [[ $# -eq 0 ]]; then
     read -q "REPLY?discard all unstaged + untracked? [y/N] " && echo && git restore --staged . && git restore . && git clean -fd && gs || echo ""
@@ -437,9 +396,6 @@ cat() {
     fi
   fi
 }
-alias gpu='git push'
-alias lg='lazygit'
-alias poosh='git add . | git commit -a -m "$(git diff --cached | gemini --model=gemini-2.5-flash --prompt \"Generate a short, clear commit message\")" && git push'
 
 # poosh but with a free OpenRouter model for the commit message
 yeet() {
@@ -496,39 +452,16 @@ except Exception:
 }
 
 # Tools & Apps
-alias nvimconfig='nvim ~/.config/nvim/init.lua'
-alias minuetconfig='nvim ~/.config/nvim/lua/plugins/minuet.lua'
-alias vimconfig='vim ~/.vimrc'
 if [[ "$IS_MACOS" == "true" ]]; then
   alias finder='open .'
   alias myip='ipconfig getifaddr en0'
 elif [[ "$IS_LINUX" == "true" ]]; then
   alias finder='xdg-open .'
 fi
-alias nq='networkQuality'
-alias ze='zoxide edit'
-alias log='$DOTFILES/scripts/log'
 
 # Gemini & AI
-alias g='gemini --yolo'
-alias gf='gemini -m "gemini-3-flash-preview" --yolo'
-alias oracle='GEMINI_SYSTEM_MD=$HOME/prompts/oracle.md gemini'
-alias geminiconfig='code ~/.gemini/'
-alias esconfig='nvim ~/.config/espanso/match/base.yml'
 
 # Taskwarrior
-alias t='task'
-alias ta='task add'
-alias tl='task list'
-alias td='task done'
-alias tm='task modify'
-alias ts='task start'
-alias tst='task stop'
-alias tn='task next'
-alias tp='task projects'
-alias tt='task tags'
-alias dtom='due:tomorrow'
-alias dtoy='due:today'
 
 
 
@@ -540,14 +473,8 @@ elif [[ "$IS_LINUX" == "true" ]]; then
   alias flystage='xdg-open "https://$(basename "$PWD" | tr "[:upper:]" "[:lower:]" | tr " " "-")-staging.fly.dev/"'
   alias flyprod='xdg-open "https://$(basename "$PWD" | tr "[:upper:]" "[:lower:]" | tr " " "-").fly.dev/"'
 fi
-alias logsstage='fly logs -c fly.staging.toml'
-alias logsprod='fly logs -c fly.prod.toml'
 
 # Fun
-alias stars='astroterm --color --constellations --speed 1000 --fps 64 --city Detroit -m'
-alias xx='plexi pane close'
-alias co='codex --no-daemon -s danger-full-access'
-alias nnj='com "new nooise jam"'
 # Connect to Greg's Railway Cloud Agent; `greg --sleep` stops its VM.
 greg() {
   if [[ "$1" == "--sleep" ]]; then
@@ -558,12 +485,8 @@ greg() {
   fi
 }
 # Codex tiers (Small / Medium / Large)
-alias cos='codex --no-daemon -s danger-full-access -m gpt-5.6-luna'
-alias com='codex --no-daemon -s danger-full-access -m gpt-5.6-terra'
-alias agy='agy --dangerously-skip-permissions'
-alias col='codex --no-daemon -s danger-full-access -m gpt-6-astra'
-alias mandelbrot='python3 $DOTFILES/scripts/mandelbrot.py'
-alias stars-now='astroterm --color --constellations --speed 1 --city Detroit -m'
+# Antigravity tiers (default Argon / Small / Medium / Large). `command agy`
+# bypasses the alias so each tier passes exactly one --model.
 
 # ------------------------------------------------------------------------------
 # UTILITY FUNCTIONS
