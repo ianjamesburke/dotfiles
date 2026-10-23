@@ -100,6 +100,17 @@ if [ "$OS" = "Linux" ] && ! command -v nvim >/dev/null 2>&1; then
   fi
 fi
 
+# ── Optional: bash tab-completion framework (Linux) ──────────────────
+if [ "$OS" = "Linux" ] && [ ! -f /usr/share/bash-completion/bash_completion ] && [ ! -f /etc/bash_completion ]; then
+  if ask "bash-completion (user install)" "The framework behind tab-completing git, ssh, systemctl and similar in bash. Cloned into ~/.local/share/bash-completion, pure shell, no root."; then
+    if [ -d "$HOME/.local/share/bash-completion/.git" ]; then
+      git -C "$HOME/.local/share/bash-completion" pull --ff-only
+    else
+      git clone --depth=1 https://github.com/scop/bash-completion.git "$HOME/.local/share/bash-completion"
+    fi
+  fi
+fi
+
 # ── Optional: Homebrew + Brewfile (macOS) ────────────────────────────
 if [ "$OS" = "Darwin" ]; then
   if ask "Homebrew + Brewfile" "Homebrew is an app store for developer tools. Installs everything in ~/dotfiles/Brewfile (eza, bat, fzf, ffmpeg, fonts, ...)."; then

@@ -22,7 +22,8 @@ HISTCONTROL=ignoredups:erasedups
 shopt -s histappend checkwinsize
 
 # Completion: system bash-completion if present (covers git, ssh, systemctl, ...)
-for f in /usr/share/bash-completion/bash_completion /etc/bash_completion; do
+for f in /usr/share/bash-completion/bash_completion /etc/bash_completion \
+         "$HOME/.local/share/bash-completion/bash_completion"; do
   [ -f "$f" ] && { source "$f"; break; }
 done
 for f in /usr/share/fzf/completion.bash /usr/share/fzf/shell/completion.bash; do
