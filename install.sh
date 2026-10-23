@@ -100,6 +100,16 @@ if [ "$OS" = "Linux" ] && ! command -v nvim >/dev/null 2>&1; then
   fi
 fi
 
+# ── Optional: LazyVim (Linux) ────────────────────────────────────────
+# Never overwrites an existing ~/.config/nvim.
+if [ "$OS" = "Linux" ] && [ ! -e "$HOME/.config/nvim" ] \
+   && { command -v nvim >/dev/null 2>&1 || [ -x "$HOME/.local/nvim/bin/nvim" ]; }; then
+  if ask "LazyVim" "Neovim distribution with LSP, fuzzy finding, git UI and a file tree preconfigured. Clones the official starter into ~/.config/nvim; plugins download on first launch. Needs git and a C compiler. Live grep wants ripgrep; icons want a Nerd Font in your terminal."; then
+    git clone --depth=1 https://github.com/LazyVim/starter "$HOME/.config/nvim"
+    rm -rf "$HOME/.config/nvim/.git"
+  fi
+fi
+
 # ── Optional: bash tab-completion framework (Linux) ──────────────────
 if [ "$OS" = "Linux" ] && [ ! -f /usr/share/bash-completion/bash_completion ] && [ ! -f /etc/bash_completion ]; then
   if ask "bash-completion (user install)" "The framework behind tab-completing git, ssh, systemctl and similar in bash. Cloned into ~/.local/share/bash-completion, pure shell, no root."; then
