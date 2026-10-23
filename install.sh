@@ -1,54 +1,60 @@
 #!/usr/bin/env sh
+# Usage: install.sh [--all]
+#   (no flag)  core install, then ask about each optional component
+#   --all      accept every optional component that applies to this machine
+# Piped installs (curl | sh) read answers from /dev/tty; with no terminal,
+# optional components are skipped.
 set -e
 
 DOTFILES="$HOME/dotfiles"
 REPO="https://github.com/ianjamesburke/dotfiles.git"
-SOURCE_LINE='[[ -f ~/dotfiles/zshrc ]] && source ~/dotfiles/zshrc'
+OS="$(uname)"
+ALL=0
+[ "$1" = "--all" ] && ALL=1
 
-# ── Welcome ──────────────────────────────────────────────────────────
 cat <<'WELCOME'
 
-  ╔══════════════════════════════════════════════════════════════╗
-  ║                                                              ║
-  ║   🖥  Ian's Command Line Configs                              ║
-  ║                                                              ║
-  ║   This installs my current command line configs. Use it as   ║
-  ║   a starting point. Point your agent at ~/dotfiles/zshrc     ║
-  ║   to explore and modify the configurations.                  ║
-  ║                                                              ║
-  ║   Here's what's about to happen:                             ║
-  ║                                                              ║
-  ║   • "zsh" is the language your Terminal speaks. This script  ║
-  ║     teaches it new tricks: aliases, shortcuts, and colors.   ║
-  ║                                                              ║
-  ║   • "Homebrew" is an app store for developer tools. We'll    ║
-  ║     use it to install everything the setup needs.            ║
-  ║                                                              ║
-  ║   • Linux installs may ask for your administrator password.  ║
-  ║     Some tools need admin access to install. The characters  ║
-  ║     won't show as you type; that's a security feature.       ║
-  ║                                                              ║
-  ║   Sit back. This takes about 2 minutes.                      ║
-  ║                                                              ║
-  ╚══════════════════════════════════════════════════════════════╝
+  Ian's Command Line Configs
+
+  Core (always): clone to ~/dotfiles, load shared aliases in your shell.
+  Everything else is optional and explained before it asks.
+  Nothing outside your home directory is touched without a yes.
 
 WELCOME
 
-# ── Privileged package installs ───────────────────────────────────────
-# macOS Homebrew manages its own privilege prompts. Linux package managers
-# need sudo unless the script is already running as root.
-run_privileged() {
-  if [ "$(id -u)" -eq 0 ]; then
-    "$@"
-  elif command -v sudo >/dev/null 2>&1; then
-    sudo "$@"
-  else
-    echo "Need root access to install $1. Re-run with sudo or install it manually." >&2
+# ask "<name>" "<one-line explainer>": returns 0 to install.
+ask() {
+  printf '\n- %s\n  %s\n' "$1" "$2"
+  if [ "$ALL" -eq 1 ]; then return 0; fi
+  if ! ( : < /dev/tty ) 2>/dev/null; then
+    echo "  (no terminal, skipping)"
     return 1
+  fi
+  printf '  Install? [y/N] '
+  read -r ans < /dev/tty
+  case "$ans" in [yY]*) return 0 ;; *) return 1 ;; esac
+}
+
+# Sudo is only attempted after an explicit yes. Probing here would log a
+# failed attempt on shared servers where the user is not a sudoer.
+can_sudo() {
+  [ "$(id -u)" -eq 0 ] || command -v sudo >/dev/null 2>&1
+}
+
+run_privileged() {
+  if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi
+}
+
+append_once() { # file, marker, line
+  if grep -qF "$2" "$1" 2>/dev/null; then
+    echo "$1 already wired, skipping."
+  else
+    printf '\n# dotfiles\n%s\n' "$3" >> "$1"
+    echo "Appended source line to $1"
   fi
 }
 
-# 1. Clone repo
+# ── Core ─────────────────────────────────────────────────────────────
 if [ -d "$DOTFILES/.git" ]; then
   echo "dotfiles already cloned, pulling latest..."
   git -C "$DOTFILES" pull --ff-only
@@ -57,142 +63,117 @@ else
   git clone "$REPO" "$DOTFILES"
 fi
 
-# 2. Install Homebrew (macOS only)
-if [ "$(uname)" = "Darwin" ] && ! command -v brew >/dev/null 2>&1; then
-  echo "Installing Homebrew..."
-  /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+# ── Optional: zsh via system package (Linux) ─────────────────────────
+if [ "$OS" = "Linux" ] && ! command -v zsh >/dev/null 2>&1 && can_sudo; then
+  if ask "zsh (system package, needs sudo)" "The shell the full config targets. Installs system-wide, so other users get it too (nobody's login shell changes). Skip if you are not an admin or the machine is IT-managed."; then
+    if command -v apt-get >/dev/null 2>&1; then
+      run_privileged apt-get update && run_privileged apt-get install -y zsh
+    elif command -v dnf >/dev/null 2>&1; then
+      run_privileged dnf install -y zsh
+    elif command -v pacman >/dev/null 2>&1; then
+      run_privileged pacman -Sy --noconfirm zsh
+    elif command -v apk >/dev/null 2>&1; then
+      run_privileged apk add zsh
+    else
+      echo "No supported package manager found; install zsh manually." >&2
+    fi || echo "zsh install failed (see above); continuing with bash." >&2
+  fi
 fi
 
-# Ensure Homebrew-installed tools are on PATH for this session
-[ -x /opt/homebrew/bin/brew ] && eval "$(/opt/homebrew/bin/brew shellenv)"
-[ -x /usr/local/bin/brew ] && eval "$(/usr/local/bin/brew shellenv)"
-
-# 3. Install the shell prerequisites before wiring up the configuration.
-# macOS gets Neovim from the Brewfile. On Linux, install only what is missing.
-if [ "$(uname)" = "Linux" ]; then
-  LINUX_PACKAGES=""
-  if ! command -v zsh >/dev/null 2>&1; then
-    LINUX_PACKAGES="$LINUX_PACKAGES zsh"
-  fi
-  if ! command -v nvim >/dev/null 2>&1; then
-    LINUX_PACKAGES="$LINUX_PACKAGES neovim"
-  fi
-
-  if [ -n "$LINUX_PACKAGES" ]; then
-    echo "Installing Linux shell prerequisites:$LINUX_PACKAGES"
-    if command -v apt-get >/dev/null 2>&1; then
-      run_privileged apt-get update
-      # Intentional word splitting: LINUX_PACKAGES is built from fixed package names above.
-      run_privileged apt-get install -y $LINUX_PACKAGES
-    elif command -v dnf >/dev/null 2>&1; then
-      run_privileged dnf install -y $LINUX_PACKAGES
-    elif command -v pacman >/dev/null 2>&1; then
-      run_privileged pacman -Sy --noconfirm $LINUX_PACKAGES
-    elif command -v apk >/dev/null 2>&1; then
-      run_privileged apk add $LINUX_PACKAGES
-    else
-      echo "No supported Linux package manager found. Install zsh and Neovim, then re-run this script." >&2
-      exit 1
+# ── Optional: neovim without root (Linux) ────────────────────────────
+if [ "$OS" = "Linux" ] && ! command -v nvim >/dev/null 2>&1; then
+  case "$(uname -m)" in
+    x86_64) NVIM_ARCH=x86_64 ;;
+    aarch64|arm64) NVIM_ARCH=arm64 ;;
+    *) NVIM_ARCH="" ;;
+  esac
+  if [ -z "$NVIM_ARCH" ]; then
+    echo "No prebuilt neovim for $(uname -m); skipping."
+  elif ask "Neovim (user install)" "Editor. Downloads the official release tarball into ~/.local/nvim. No root needed, other users unaffected."; then
+    NVIM_URL="https://github.com/neovim/neovim/releases/latest/download/nvim-linux-$NVIM_ARCH.tar.gz"
+    mkdir -p "$HOME/.local/nvim"
+    curl -fsSL "$NVIM_URL" | tar -xz -C "$HOME/.local/nvim" --strip-components=1
+    if ! "$HOME/.local/nvim/bin/nvim" --version >/dev/null 2>&1; then
+      echo "Neovim installed but will not run (likely an old glibc: $(ldd --version | head -1)). Removing ~/.local/nvim." >&2
+      rm -rf "$HOME/.local/nvim"
     fi
   fi
 fi
 
-# 4. Install packages from Brewfile
-if command -v brew >/dev/null 2>&1; then
-  echo "Installing packages from Brewfile..."
-  brew bundle --file="$DOTFILES/Brewfile"
-else
-  echo "Homebrew not available, skipping package install."
-fi
-
-# 5. Install Rust via rustup
-if ! command -v rustc >/dev/null 2>&1; then
-  echo "Installing Rust..."
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-  . "$HOME/.cargo/env"
-else
-  echo "Rust already installed, skipping."
-fi
-
-# 6. Install uv (Python toolchain)
-if ! command -v uv >/dev/null 2>&1; then
-  echo "Installing uv..."
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-else
-  echo "uv already installed, skipping."
-fi
-
-# 7. Install npm global tools
-if command -v npm >/dev/null 2>&1; then
-  echo "Installing npm global packages..."
-  npm install -g @anthropic-ai/claude-code @earendil-works/pi-coding-agent 2>/dev/null || true
-else
-  echo "npm not found. Install Node via mise ('mise use -g node@lts') then re-run."
-fi
-
-# 8. Install uv tools
-if command -v uv >/dev/null 2>&1; then
-  echo "Installing uv tools..."
-  uv tool install mermaid-ascii 2>/dev/null || true
-else
-  echo "uv not available, skipping mermaid-ascii."
-fi
-
-# 8b. Seed Pi settings (regular TUI mode so terminal text selection works)
-if command -v node >/dev/null 2>&1; then
-  echo "Seeding Pi settings..."
-  node "$DOTFILES/scripts/pi-settings-seed.mjs"
-else
-  echo "node not found, skipping Pi settings. Install Node then re-run."
-fi
-
-# 9. Install Antidote and generate the zsh plugin bundle.
-# Homebrew provides it on macOS. On Linux, keep the manager in ~/.antidote so
-# the shell remains portable without requiring Linuxbrew.
-ANTIDOTE_ZSH=""
-if command -v brew >/dev/null 2>&1; then
-  ANTIDOTE_ZSH="$(brew --prefix antidote 2>/dev/null)/share/antidote/antidote.zsh"
-elif [ "$(uname)" = "Linux" ]; then
-  ANTIDOTE_DIR="$HOME/.antidote"
-  if [ -d "$ANTIDOTE_DIR/.git" ]; then
-    echo "Updating antidote..."
-    git -C "$ANTIDOTE_DIR" pull --ff-only
-  else
-    echo "Installing antidote..."
-    git clone --depth=1 https://github.com/mattmc3/antidote.git "$ANTIDOTE_DIR"
+# ── Optional: bash tab-completion framework (Linux) ──────────────────
+if [ "$OS" = "Linux" ] && [ ! -f /usr/share/bash-completion/bash_completion ] && [ ! -f /etc/bash_completion ]; then
+  if ask "bash-completion (user install)" "The framework behind tab-completing git, ssh, systemctl and similar in bash. Cloned into ~/.local/share/bash-completion, pure shell, no root."; then
+    if [ -d "$HOME/.local/share/bash-completion/.git" ]; then
+      git -C "$HOME/.local/share/bash-completion" pull --ff-only
+    else
+      git clone --depth=1 https://github.com/scop/bash-completion.git "$HOME/.local/share/bash-completion"
+    fi
   fi
-  ANTIDOTE_ZSH="$ANTIDOTE_DIR/antidote.zsh"
 fi
 
-if [ -f "$ANTIDOTE_ZSH" ] && command -v zsh >/dev/null 2>&1; then
-  echo "Generating zsh plugin bundle..."
+# ── Optional: Homebrew + Brewfile (macOS) ────────────────────────────
+if [ "$OS" = "Darwin" ]; then
+  if ask "Homebrew + Brewfile" "Homebrew is an app store for developer tools. Installs everything in ~/dotfiles/Brewfile (eza, bat, fzf, ffmpeg, fonts, ...)."; then
+    if ! command -v brew >/dev/null 2>&1; then
+      /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    fi
+    [ -x /opt/homebrew/bin/brew ] && eval "$(/opt/homebrew/bin/brew shellenv)"
+    [ -x /usr/local/bin/brew ] && eval "$(/usr/local/bin/brew shellenv)"
+    brew bundle --file="$DOTFILES/Brewfile"
+  fi
+fi
+
+# ── Optional: user-level toolchains ──────────────────────────────────
+if ! command -v rustc >/dev/null 2>&1 && ask "Rust (rustup)" "Rust compiler in ~/.cargo. Only needed to build Rust projects; large download."; then
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+fi
+
+if ! command -v uv >/dev/null 2>&1 && ask "uv" "Fast Python package and project manager, installed to ~/.local/bin."; then
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+fi
+
+if command -v npm >/dev/null 2>&1 && ask "Agent CLIs (npm)" "Global npm install of claude-code and pi-coding-agent. Fails without write access to the npm prefix."; then
+  npm install -g @anthropic-ai/claude-code @earendil-works/pi-coding-agent
+fi
+
+if command -v node >/dev/null 2>&1 && ask "Pi settings" "Seeds Pi's config so terminal text selection works."; then
+  node "$DOTFILES/scripts/pi-settings-seed.mjs"
+fi
+
+# ── Optional: zsh plugins ────────────────────────────────────────────
+if command -v zsh >/dev/null 2>&1 && ask "zsh plugins (antidote)" "Plugin manager for zsh. Adds autosuggestions, syntax highlighting and richer completion. Installed in ~/.antidote (or via Homebrew)."; then
+  if command -v brew >/dev/null 2>&1; then
+    ANTIDOTE_ZSH="$(brew --prefix antidote)/share/antidote/antidote.zsh"
+  else
+    ANTIDOTE_DIR="$HOME/.antidote"
+    if [ -d "$ANTIDOTE_DIR/.git" ]; then
+      git -C "$ANTIDOTE_DIR" pull --ff-only
+    else
+      git clone --depth=1 https://github.com/mattmc3/antidote.git "$ANTIDOTE_DIR"
+    fi
+    ANTIDOTE_ZSH="$ANTIDOTE_DIR/antidote.zsh"
+  fi
   ANTIDOTE_ZSH="$ANTIDOTE_ZSH" DOTFILES="$DOTFILES" zsh -c '
     source "$ANTIDOTE_ZSH"
     antidote bundle < "$DOTFILES/zsh_plugins.txt" > "$DOTFILES/zsh_plugins.zsh"
   '
-else
-  echo "Antidote or zsh is unavailable; zsh plugins were not generated." >&2
 fi
 
-# 10. Wire up ~/.zshrc
-ZSHRC="$HOME/.zshrc"
-if grep -qF "dotfiles/zshrc" "$ZSHRC" 2>/dev/null; then
-  echo "~/.zshrc already sources dotfiles, skipping."
-else
-  echo "" >> "$ZSHRC"
-  echo "# dotfiles" >> "$ZSHRC"
-  echo "$SOURCE_LINE" >> "$ZSHRC"
-  echo "Appended source line to ~/.zshrc"
+# ── Core: wire the shell ─────────────────────────────────────────────
+# zsh present: zshrc is the entry point. Linux also gets bashrc, which hands
+# interactive logins over to zsh (no chsh needed). No zsh: bashrc loads the
+# shared aliases and completions directly.
+if command -v zsh >/dev/null 2>&1; then
+  append_once "$HOME/.zshrc" "dotfiles/zshrc" '[[ -f ~/dotfiles/zshrc ]] && source ~/dotfiles/zshrc'
+fi
+if [ "$OS" = "Linux" ]; then
+  append_once "$HOME/.bashrc" "dotfiles/bashrc" '[ -f ~/dotfiles/bashrc ] && . ~/dotfiles/bashrc'
 fi
 
 echo ""
-echo "Done. Open a new terminal or run: source ~/.zshrc"
-echo ""
-if [ "$(uname)" = "Darwin" ]; then
-  echo "⚠  REQUIRED: Set your terminal font to 'JetBrainsMono Nerd Font Mono'"
-  echo "   Without it, eza --icons will show broken boxes instead of file icons."
+echo "Done. Open a new terminal (or log in again)."
+if [ "$OS" = "Darwin" ]; then
   echo ""
-  echo "   iTerm2:    Preferences → Profiles → Text → Font"
-  echo "   Terminal:  Settings → Profiles → Font"
-  echo "   Ghostty:   Add 'font-family = JetBrainsMono Nerd Font Mono' to config"
+  echo "REQUIRED: set your terminal font to 'JetBrainsMono Nerd Font Mono'"
+  echo "(without it, eza --icons shows broken boxes)."
 fi
