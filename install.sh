@@ -35,12 +35,10 @@ ask() {
   case "$ans" in [yY]*) return 0 ;; *) return 1 ;; esac
 }
 
-# Root, or membership in an admin group. Avoids a sudo attempt on shared
-# servers where the user is not a sudoer (those get logged and reported).
+# Sudo is only attempted after an explicit yes. Probing here would log a
+# failed attempt on shared servers where the user is not a sudoer.
 can_sudo() {
-  [ "$(id -u)" -eq 0 ] && return 0
-  command -v sudo >/dev/null 2>&1 || return 1
-  id -Gn | tr ' ' '\n' | grep -qxE 'sudo|wheel|admin'
+  [ "$(id -u)" -eq 0 ] || command -v sudo >/dev/null 2>&1
 }
 
 run_privileged() {
@@ -65,34 +63,20 @@ else
   git clone "$REPO" "$DOTFILES"
 fi
 
-# ── Optional: system packages (Linux) ────────────────────────────────
-if [ "$OS" = "Linux" ]; then
-  MISSING=""
-  command -v zsh >/dev/null 2>&1 || MISSING="$MISSING zsh"
-  command -v nvim >/dev/null 2>&1 || MISSING="$MISSING neovim"
-  if [ -n "$MISSING" ]; then
-    if can_sudo; then
-      if ask "System packages:$MISSING" "zsh is the shell the full config targets; neovim is the editor. Installs system-wide via your package manager (needs sudo), so other users get them too."; then
-        if command -v apt-get >/dev/null 2>&1; then
-          run_privileged apt-get update
-          # shellcheck disable=SC2086
-          run_privileged apt-get install -y $MISSING
-        elif command -v dnf >/dev/null 2>&1; then
-          # shellcheck disable=SC2086
-          run_privileged dnf install -y $MISSING
-        elif command -v pacman >/dev/null 2>&1; then
-          # shellcheck disable=SC2086
-          run_privileged pacman -Sy --noconfirm $MISSING
-        elif command -v apk >/dev/null 2>&1; then
-          # shellcheck disable=SC2086
-          run_privileged apk add $MISSING
-        else
-          echo "No supported package manager found; install$MISSING manually." >&2
-        fi
-      fi
+# ── Optional: zsh via system package (Linux) ─────────────────────────
+if [ "$OS" = "Linux" ] && ! command -v zsh >/dev/null 2>&1 && can_sudo; then
+  if ask "zsh (system package, needs sudo)" "The shell the full config targets. Installs system-wide, so other users get it too (nobody's login shell changes). Skip if you are not an admin or the machine is IT-managed."; then
+    if command -v apt-get >/dev/null 2>&1; then
+      run_privileged apt-get update && run_privileged apt-get install -y zsh
+    elif command -v dnf >/dev/null 2>&1; then
+      run_privileged dnf install -y zsh
+    elif command -v pacman >/dev/null 2>&1; then
+      run_privileged pacman -Sy --noconfirm zsh
+    elif command -v apk >/dev/null 2>&1; then
+      run_privileged apk add zsh
     else
-      echo "Missing:$MISSING. No sudo rights here, so skipping. Bash gets your aliases and completions instead."
-    fi
+      echo "No supported package manager found; install zsh manually." >&2
+    fi || echo "zsh install failed (see above); continuing with bash." >&2
   fi
 fi
 
