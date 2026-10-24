@@ -31,6 +31,10 @@ if [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then
     git rebase --abort 2>/dev/null || true
 fi
 
+# Redact secrets from pending files before anything is staged. Fails the run
+# (nothing committed or pushed) if the scanner is missing or errors.
+"$(dirname "$0")/daily-log-redact" "$LOG_DIR"
+
 # Check for any changes (staged, unstaged, or untracked)
 if git diff --quiet && git diff --cached --quiet && [ -z "$(git ls-files --others --exclude-standard)" ]; then
     # Nothing to commit, but still try to pull in case remote has changes
