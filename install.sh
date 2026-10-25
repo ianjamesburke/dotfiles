@@ -100,6 +100,27 @@ if [ "$OS" = "Linux" ] && ! command -v nvim >/dev/null 2>&1; then
   fi
 fi
 
+# ── Optional: gitleaks without root (Linux) ──────────────────────────
+# daily-log-sync refuses to commit without it. macOS gets it from the Brewfile.
+if [ "$OS" = "Linux" ] && ! command -v gitleaks >/dev/null 2>&1; then
+  case "$(uname -m)" in
+    x86_64) GL_ARCH=x64 ;;
+    aarch64|arm64) GL_ARCH=arm64 ;;
+    *) GL_ARCH="" ;;
+  esac
+  if [ -z "$GL_ARCH" ]; then
+    echo "No prebuilt gitleaks for $(uname -m); skipping."
+  elif ask "gitleaks (user install)" "Secret scanner. daily-log-sync uses it to redact API keys before committing logs, and refuses to commit without it. Downloads the release binary into ~/.local/bin. No root needed."; then
+    GL_TAG="$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/gitleaks/gitleaks/releases/latest)"
+    GL_VER="${GL_TAG##*/v}"
+    mkdir -p "$HOME/.local/bin"
+    curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v$GL_VER/gitleaks_${GL_VER}_linux_$GL_ARCH.tar.gz" \
+      | tar -xz -C "$HOME/.local/bin" gitleaks
+    "$HOME/.local/bin/gitleaks" version >/dev/null 2>&1 \
+      || echo "gitleaks installed but will not run; daily-log-sync will refuse to commit." >&2
+  fi
+fi
+
 # ── Optional: LazyVim (Linux) ────────────────────────────────────────
 # Never overwrites an existing ~/.config/nvim.
 if [ "$OS" = "Linux" ] && [ ! -e "$HOME/.config/nvim" ] \
