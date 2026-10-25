@@ -58,6 +58,7 @@ Each script works standalone and outputs file paths to stdout for piping.
 | `audio-compress` | Normalize + convert to MP3 (-10 LUFS) | `audio-compress file.wav [file2.wav ...]` |
 | `audio-transcribe` | Whisper → markdown in daily_log | `audio-transcribe file.mp3 [--date YYYY-MM-DD]` |
 | `mlog` | Orchestrator: pull → compress → transcribe | `mlog` or `mlog -f file.wav` |
+| `dji-note` | Mac: latest DJI session → join → Whisper → timecoded Plexi note | `dji-note [--dry-run]` |
 
 ## Screen Time
 

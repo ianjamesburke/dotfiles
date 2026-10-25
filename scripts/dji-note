@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+"""dji-note: latest DJI session -> one audio file -> whisper -> timecoded Plexi note.
+
+Usage: dji-note [--model small] [--dry-run]
+
+Session = newest WAV plus every earlier WAV whose filename start time + duration
+lands within CHAIN_TOLERANCE_S of the next file's start (the mic splits long
+recordings into ~31 min chunks). macOS only: DJI_Audio_001 must be mounted
+under /Volumes.
+"""
+import argparse
+import json
+import re
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timedelta
+from pathlib import Path
+
+DJI_DIR_NAME = "DJI_Audio_001"
+CHAIN_TOLERANCE_S = 10
+NAME_RE = re.compile(r"^DJI_\d+_(\d{8})_(\d{6})\.WAV$", re.IGNORECASE)
+
+
+def die(msg: str) -> None:
+    print(f"dji-note: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def run(cmd: list[str], op: str, **kw) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(cmd, check=True, text=True, **kw)
+    except FileNotFoundError:
+        die(f"{op}: '{cmd[0]}' not found on PATH")
+    except subprocess.CalledProcessError as e:
+        die(f"{op} failed (exit {e.returncode}): {' '.join(cmd)}\n{e.stderr or ''}")
+
+
+def find_dji_dir() -> Path:
+    for vol in sorted(Path("/Volumes").iterdir()):
+        cand = vol / DJI_DIR_NAME
+        if cand.is_dir():
+            return cand
+    die(f"no {DJI_DIR_NAME} under /Volumes. Plug in the DJI mic and mount it.")
+
+
+def duration(path: Path) -> float:
+    out = run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+        f"ffprobe {path.name}", capture_output=True,
+    )
+    return float(out.stdout.strip())
+
+
+def start_time(path: Path) -> datetime:
+    m = NAME_RE.match(path.name)
+    if not m:
+        die(f"unexpected filename (want DJI_NN_YYYYMMDD_HHMMSS.WAV): {path.name}")
+    return datetime.strptime(m.group(1) + m.group(2), "%Y%m%d%H%M%S")
+
+
+def latest_session(dji_dir: Path) -> list[Path]:
+    files = sorted(
+        (p for p in dji_dir.iterdir() if NAME_RE.match(p.name)), key=start_time
+    )
+    if not files:
+        die(f"no DJI_*.WAV files in {dji_dir}")
+    session = [files[-1]]
+    for prev in reversed(files[:-1]):
+        gap = (start_time(session[0]) - start_time(prev)).total_seconds() - duration(prev)
+        if abs(gap) > CHAIN_TOLERANCE_S:
+            break
+        session.insert(0, prev)
+    return session
+
+
+def stamp(seconds: float) -> str:
+    s = int(seconds)
+    h, rem = divmod(s, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h:d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--model", default="small")
+    ap.add_argument("--dry-run", action="store_true", help="print note instead of saving")
+    args = ap.parse_args()
+
+    session = latest_session(find_dji_dir())
+    began = start_time(session[0])
+    total = sum(duration(p) for p in session)
+    print(
+        f"session: {len(session)} file(s), {stamp(total)}, from {began:%Y-%m-%d %H:%M}",
+        file=sys.stderr,
+    )
+
+    with tempfile.TemporaryDirectory(prefix="dji-note-") as tmp:
+        tmp = Path(tmp)
+        listing = tmp / "list.txt"
+        listing.write_text("".join(f"file '{p}'\n" for p in session))
+        joined = tmp / "session.wav"
+        # re-encode, never stream-copy (black first frame / glitch gotcha)
+        run(
+            ["ffmpeg", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(listing),
+             "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(joined)],
+            "ffmpeg concat", capture_output=True,
+        )
+        run(
+            ["whisper", str(joined), "--model", args.model, "--language", "English",
+             "--fp16", "False", "--output_dir", str(tmp), "--output_format", "json"],
+            "whisper", stdout=sys.stderr,
+        )
+        segments = json.loads((tmp / "session.json").read_text())["segments"]
+
+    if not segments:
+        die("whisper returned no segments (silent recording?)")
+
+    lines = [f"# Portable Mic Transcript, {began:%Y-%m-%d %H:%M}", ""]
+    lines += [f"{len(session)} file(s), {stamp(total)} total, ended {began + timedelta(seconds=total):%H:%M}", ""]
+    lines += [f"[{stamp(s['start'])}] {s['text'].strip()}" for s in segments]
+    note = "\n".join(lines)
+
+    if args.dry_run:
+        print(note)
+        return
+    # run from $HOME so the note lands in the global tier, not a project's .plexi/
+    run(["plexi", "note", "add", note], "plexi note add", cwd=Path.home(), capture_output=True)
+    print(f"saved note ({len(segments)} segments)", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

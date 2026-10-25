@@ -163,6 +163,10 @@ if ! command -v uv >/dev/null 2>&1 && ask "uv" "Fast Python package and project 
   curl -LsSf https://astral.sh/uv/install.sh | sh
 fi
 
+if command -v uv >/dev/null 2>&1 && ! command -v whisper >/dev/null 2>&1 && ask "Whisper" "Speech-to-text CLI via uv tool. Used by audio-transcribe and dji-note; downloads models on first use."; then
+  uv tool install openai-whisper
+fi
+
 if command -v npm >/dev/null 2>&1 && ask "Agent CLIs (npm)" "Global npm install of claude-code and pi-coding-agent. Fails without write access to the npm prefix."; then
   npm install -g @anthropic-ai/claude-code @earendil-works/pi-coding-agent
 fi
