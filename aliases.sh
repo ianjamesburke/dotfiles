@@ -78,6 +78,8 @@ alias agy='command agy --dangerously-skip-permissions --model gemini-4-argon-med
 alias agys='command agy --dangerously-skip-permissions --model gemini-3.8-flash-medium'
 alias agym='command agy --dangerously-skip-permissions --model claude-sonnet-5-5-medium'
 alias agyl='command agy --dangerously-skip-permissions --model claude-opus-5-5-medium'
+alias agyf='command agy --dangerously-skip-permissions --model gemini-3.8-flash-medium'
+alias agyg='command agy --dangerously-skip-permissions --model gemini-4-argon-high'
 alias mandelbrot='python3 $DOTFILES/scripts/mandelbrot.py'
 alias stars-now='astroterm --color --constellations --speed 1 --city Detroit -m'
 
