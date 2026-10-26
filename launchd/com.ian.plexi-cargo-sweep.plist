@@ -6,7 +6,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string><string>-c</string>
-        <string>set -o pipefail; "$HOME/dotfiles/scripts/plexi-cargo-sweep" --apply 2&gt;&amp;1 | /usr/bin/logger -t plexi-prune</string>
+        <string>"$HOME/dotfiles/scripts/plexi-cargo-sweep" --apply &gt;&gt; "$HOME/Library/Logs/plexi-cargo-sweep.log" 2&gt;&amp;1</string>
     </array>
     <key>StartCalendarInterval</key>
     <dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>20</integer></dict>

@@ -104,12 +104,12 @@ function pruneBuilds(repos, apply, days) {
   const cargo = path.join(os.homedir(), '.cargo/bin/cargo');
   const sweep = path.join(os.homedir(), '.cargo/bin/cargo-sweep');
   const seen = new Set();
-  for (const repo of repos) {
+  for (const { path: repo, origin } of repos) {
     if (!fs.existsSync(repo)) continue;
     realDirectory(repo);
     const remote = run('/usr/bin/git', ['-C', repo, 'remote', 'get-url', 'origin']).trim();
-    if (!/github\.com[:/]ianjamesburke\/PLEXI(?:\.git)?$/i.test(remote)) {
-      throw new Error(`refusing non-Plexi repository: ${repo}`);
+    if (!origin.test(remote)) {
+      throw new Error(`refusing unexpected repository origin: ${repo} -> ${remote}`);
     }
     for (const entry of registeredWorktrees(run('/usr/bin/git', ['-C', repo, 'worktree', 'list', '--porcelain', '-z']))) {
       if (!fs.existsSync(entry)) continue;
@@ -180,7 +180,12 @@ export function main(args) {
   const apply = args.includes('--apply');
   const days = 14;
   const home = os.homedir();
-  const repos = [path.join(home, 'Documents/GitHub/PLEXI'), path.join(home, '.plexi-src')];
+  const plexiOrigin = /github\.com[:/]ianjamesburke\/PLEXI(?:\.git)?$/i;
+  const repos = [
+    { path: path.join(home, 'Documents/GitHub/PLEXI'), origin: plexiOrigin },
+    { path: path.join(home, '.plexi-src'), origin: plexiOrigin },
+    { path: path.join(home, 'Documents/GitHub/nooise'), origin: /github\.com[:/]ianjamesburke\/nooise(?:\.git)?$/i },
+  ];
   const temp = run('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR']).trim();
   const roots = [...new Set([temp, '/private/tmp'].map(root => fs.realpathSync(root)))];
   log(`${apply ? 'apply' : 'dry run'}; cutoff ${days} days; profiles, installs and sources excluded`);

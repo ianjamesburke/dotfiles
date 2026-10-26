@@ -4,7 +4,10 @@ set -euo pipefail
 REPO="$HOME/Documents/GitHub/PLEXI"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PATH="$HOME/.cargo/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-# Never inherit a stale nesting marker from the caller. A busy build gets priority.
+# Never inherit a stale nesting marker from the caller.
 unset PLEXI_CARGO_LOCK_HELD PLEXI_CARGO_LOCK
-export PLEXI_CARGO_LEASE_TIMEOUT_SECS=1
+# Wait out a live build instead of failing in 1s. cargo-sweep only removes
+# artifacts untouched for 14 days, so a post-build sweep is safe, and the
+# wrapped prune re-checks for live builds after it takes the lock.
+export PLEXI_CARGO_LEASE_TIMEOUT_SECS=900
 exec /bin/bash "$REPO/scripts/cargo-with-lease.sh" node "$SCRIPT_DIR/plexi-prune.mjs" "$@"
