@@ -1,0 +1,116 @@
+#!/bin/bash
+# Offloads archived media from the MacBook to the "Aux Brink" drive when attached.
+# The MacBook runs near full; this copies old recordings/video/projects (never
+# code, app state, or anything sync-backed) to the external drive, then deletes
+# the local copy only after rsync reported success, so yanking the drive
+# mid-run loses nothing. Re-running is safe: already-copied files are skipped.
+#
+# A source may carry a trailing ":DAYS" (e.g. obs:...:7) to move only files
+# older than DAYS and leave recent ones in place.
+#
+# NOTE: --remove-source-files is deliberately NOT used. This Mac's rsync 2.6.9
+# hangs on it, even in dry-run. Do not add it back.
+#
+# Dry run by default: prints what would move. `aux-archive --apply` moves it.
+# The SOURCES list is a first pass — prune it to only what you are happy to
+# lose from the MacBook before your first --apply.
+set -euo pipefail
+
+VOL="/Volumes/Aux Brink"
+DEST_ROOT="$VOL/Archive"
+LOG="$HOME/Library/Logs/aux-archive.log"
+
+APPLY=no
+ONLY=""
+for a in "$@"; do
+  case "$a" in
+    --apply) APPLY=yes ;;
+    --dry-run) APPLY=no ;;
+    --only=*) ONLY="${a#--only=}" ;;
+    -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
+    *) echo "unknown arg $a" >&2; exit 2 ;;
+  esac
+done
+
+# name:source[:DAYS]  -> /Volumes/Aux Brink/Archive/<name>/
+# DAYS moves only files older than N days and leaves the rest; without it the
+# whole folder moves. Only add archival folders, never one a running app writes
+# to, and never a folder another entry lives inside.
+SOURCES=(
+  "obs:$HOME/Movies/OBS:7"
+  "movies-clarity:$HOME/Movies/clarity"
+  "movies-portfolio:$HOME/Movies/For Portfolio"
+  "movies-ai:$HOME/Movies/Ai Videos"
+  "movies-iphone:$HOME/Movies/to offload to iphone"
+  "desktop-live-set:$HOME/Desktop/Live Set Project"
+  "desktop-gay-in-church:$HOME/Desktop/Gay in Church"
+  "desktop-video-arc-lq:$HOME/Desktop/video arc LQ"
+  "desktop-hamtrack:$HOME/Desktop/Hamtrack Show Project.zip"
+  "desktop-dji-dump:$HOME/Desktop/20250803 dji audio dump "
+  "music-demos-restored:$HOME/Music/1_Demos_restored"
+  "music-nooise-sessions:$HOME/Music/Nooise Sessions"
+  "downloads-archive:$HOME/Downloads/Archive"
+  "soulseek:$HOME/Soulseek Downloads"
+)
+
+STAMP=$(date '+%Y-%m-%d %H:%M:%S')
+log() { printf '%s %s\n' "$STAMP" "$*" | tee -a "$LOG"; }
+
+if [ ! -d "$VOL" ]; then
+  echo "Aux Brink not attached; nothing to do."
+  exit 0
+fi
+mkdir -p "$DEST_ROOT" "$(dirname "$LOG")"
+
+# nice keeps the CPU work off the user's critical path. taskpolicy -b was tried
+# and throttled transfers to ~9 MB/s on this USB drive (vs 33 MB/s); don't use it.
+# ${DRY[@]+...} guard: bash 3.2 + set -u treats an empty array as unbound.
+FLAGS=(-a --partial)
+DRY=(); [ "$APPLY" = no ] && DRY=(--dry-run)
+
+moved=0
+for entry in "${SOURCES[@]}"; do
+  days=""
+  case "$entry" in *:[0-9]*) days="${entry##*:}"; entry="${entry%:*}";; esac
+  name="${entry%%:*}"; src="${entry#*:}"
+  if [ -n "$ONLY" ] && [ "$name" != "$ONLY" ]; then continue; fi
+  if [ ! -e "$src" ]; then log "skip $name (missing)"; continue; fi
+  # Refuse anything outside $HOME — an archive move must never touch the system.
+  case "$src" in "$HOME"/*) ;; *) log "REFUSED $name (outside HOME)"; continue ;; esac
+  mkdir -p "$DEST_ROOT/$name"
+
+  if [ -n "$days" ]; then
+    # Age mode: only files older than DAYS; recent files stay on the MacBook.
+    list=$(mktemp)
+    ( cd "$src" && find . -type f -mtime +"$days" ) > "$list"
+    n=$(wc -l < "$list" | tr -d ' ')
+    size=$(du -sh "$src" 2>/dev/null | cut -f1)
+    log "$name  (>${days}d: $n files of $size)  ->  $DEST_ROOT/$name"
+    if [ "$APPLY" = yes ] && [ "$n" -gt 0 ]; then
+      nice -n 10 rsync "${FLAGS[@]}" --files-from="$list" "$src/" "$DEST_ROOT/$name/"
+      ( cd "$src" && while IFS= read -r f; do rm -f "$f"; done < "$list" )
+      find "$src" -type d -empty -delete 2>/dev/null || true
+      log "moved $n files, removed local copies"
+    fi
+    rm -f "$list"
+  else
+    size=$(du -sh "$src" 2>/dev/null | cut -f1)
+    log "$name  ($size)  ->  $DEST_ROOT/$name"
+    # Trailing slash only for directories; a bare file source must not get one.
+    if [ -d "$src" ]; then from="$src/"; else from="$src"; fi
+    if nice -n 10 rsync "${FLAGS[@]}" ${DRY[@]+"${DRY[@]}"} "$from" "$DEST_ROOT/$name/"; then
+      moved=$((moved + 1))
+      # Copy succeeded, so the local copy is now redundant. Remove it only on a
+      # real run; the guard above keeps this from ever reaching outside $HOME.
+      if [ "$APPLY" = yes ]; then
+        rm -rf "$src" && log "removed local $name"
+      fi
+    else
+      log "FAILED $name — source left untouched"
+    fi
+  fi
+  if [ -n "$days" ]; then moved=$((moved + 1)); fi
+done
+
+[ "$APPLY" = no ] && log "DRY RUN — re-run with --apply to move files"
+log "done ($moved/${#SOURCES[@]} sources)"

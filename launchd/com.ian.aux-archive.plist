@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- On mount, reports what is staged for offload (dry run). Moving files
+         stays a deliberate `aux-archive --apply`. -->
+    <key>Label</key>
+    <string>com.ian.aux-archive</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-l</string>
+        <string>-c</string>
+        <string>$HOME/dotfiles/scripts/aux-archive</string>
+    </array>
+    <key>WatchPaths</key>
+    <array>
+        <string>/Volumes</string>
+    </array>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>/tmp/aux-archive.out</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/aux-archive.err</string>
+</dict>
+</plist>
