@@ -57,7 +57,7 @@ def claude() -> list[dict]:
     return [
         window(label, data[key]["utilization"], datetime.fromisoformat(data[key]["resets_at"]), 5 if "five" in key else 168)
         for key, label in [("five_hour", "5-hour"), ("seven_day", "7-day"), ("seven_day_opus", "7d Opus"), ("seven_day_sonnet", "7d Sonnet")]
-        if data.get(key)
+        if data.get(key) and data[key].get("resets_at")
     ]
 
 
