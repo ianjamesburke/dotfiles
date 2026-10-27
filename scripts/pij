@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# pij: Pi talking to Chat Jimmy (Llama 3.1 8B on Taalas HC1) with no tools/extensions/skills.
+# Upstream caps input at ~6k tokens, so Pi's default prompt + tool schemas cannot fit.
+# Needs the wrapper at ~/Documents/GitHub/chatjimmy-wrapper listening on :8787.
+set -euo pipefail
+if ! curl -fsS --max-time 2 http://127.0.0.1:8787/health >/dev/null; then
+  echo "pij: chatjimmy wrapper not responding on 127.0.0.1:8787. Start it: cd ~/Documents/GitHub/chatjimmy-wrapper && pnpm exec tsx --env-file=.env server/src/index.ts" >&2
+  exit 1
+fi
+exec pi --model taalas/llama3.1-8B -nt -ne -ns -np --no-mcp --no-session \
+  --system-prompt "${PIJ_SYSTEM_PROMPT:-You are a fast, concise assistant.}" "$@"

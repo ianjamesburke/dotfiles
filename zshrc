@@ -148,6 +148,11 @@ bindkey "^X^E" edit-command-line
 
 # Pi router tiers. Keep these stable; ~/.pi/agent/extensions/subscription-router.ts owns model selection and fallbacks.
 
+# pi-background-tasks: load only the shell-task lane (bg_run/bg_status/jobs + wake).
+# Without this the package also loads delegate/fusion/attested/attribution, and the
+# attribution lane rewrites Anthropic cache breakpoints (confounds cost measurement).
+export PI_BG_FEATURES=process
+
 # Clipboard — moved from p → pp since p is Pi Medium.
 if [[ "$IS_MACOS" == "true" ]]; then
   alias pp='pbpaste'

@@ -19,6 +19,7 @@ brew "mise"
 brew "neovim"
 brew "task"
 brew "trash"
+brew "uv"
 brew "zoxide"
 
 # Worktree workflow (tap: satococoa/tap)

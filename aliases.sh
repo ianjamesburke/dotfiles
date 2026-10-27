@@ -82,6 +82,7 @@ alias agyf='command agy --dangerously-skip-permissions --model gemini-3.8-flash-
 alias agyg='command agy --dangerously-skip-permissions --model gemini-4-argon-high'
 alias mandelbrot='python3 $DOTFILES/scripts/mandelbrot.py'
 alias stars-now='astroterm --color --constellations --speed 1 --city Detroit -m'
+alias cr='cargo run'
 
 # macOS only
 if [ "$(uname)" = "Darwin" ]; then

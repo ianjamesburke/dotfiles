@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ian.kill-tony-or-3</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/zsh</string>
+        <string>-c</string>
+        <string>source ~/.zsh_secrets; exec /usr/bin/caffeinate -i .venv/bin/python backlog_runner.py or3 --provider openrouter</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/ianburke/Documents/GitHub/kill-tony-archive/backend</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>300</integer>
+    <key>StandardOutPath</key>
+    <string>/tmp/com.ian.kill-tony-or-3.out</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/com.ian.kill-tony-or-3.err</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:/Users/ianburke/.deno/bin</string>
+        <key>HOME</key>
+        <string>/Users/ianburke</string>
+    </dict>
+</dict>
+</plist>
