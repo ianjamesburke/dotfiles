@@ -17,3 +17,4 @@ Own `scripts/ops`'s templates, generated runtime, and CLI integration tests.
 
 - `uv run --no-project --python 3.13 python -m unittest discover -s scripts/lib/ops -p 'test_*.py' -v`
 - Integration tests require `git`, `just`, `git-cliff`, and Cargo with rustfmt and Clippy; all mutations happen in temporary repositories.
+- The install workflow runs the suite on macOS and Ubuntu after installing the Brewfile.

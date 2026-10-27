@@ -231,6 +231,19 @@ class OpsIntegrationTests(unittest.TestCase):
         self.command("just", "check")
         self.assertTrue((self.root / "Cargo.lock").is_file())
 
+    def test_audit_warns_when_default_lists_commands_and_also_mutates(self):
+        self.init()
+        justfile = self.root / "justfile"
+        justfile.write_text(
+            justfile.read_text().replace(
+                "@just --list", "@just --list; touch UNSAFE_DEFAULT"
+            )
+        )
+        audit = self.command(sys.executable, str(OPS), "audit")
+        self.assertIn("WARN: bare just selects", audit.stdout)
+        self.assertNotIn("PASS: bare just lists commands", audit.stdout)
+        self.assertFalse((self.root / "UNSAFE_DEFAULT").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

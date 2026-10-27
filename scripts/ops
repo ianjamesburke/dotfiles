@@ -179,8 +179,14 @@ def audit(root: Path) -> int:
                 ):
                     first = name
             default = recipes.get(first, {})
-            body = json.dumps(default.get("body", []))
-            if "--list" in body and not default.get("dependencies"):
+            body = default.get("body", [])
+            lists_only = body in (
+                [["@just --list"]],
+                [["just --list"]],
+                [["@just -l"]],
+                [["just -l"]],
+            )
+            if lists_only and not default.get("dependencies"):
                 report("PASS", "bare just lists commands")
             else:
                 report(
@@ -188,11 +194,14 @@ def audit(root: Path) -> int:
                     f"bare just selects {first!r}; prefer a default recipe that only lists commands",
                 )
             if "check" in recipes:
-                dependencies = json.dumps(recipes["check"].get("dependencies", []))
+                dependencies = {
+                    dependency.get("recipe")
+                    for dependency in recipes["check"].get("dependencies", [])
+                }
                 missing = [
                     name
                     for name in ("lint", "test", "build")
-                    if f'"{name}"' not in dependencies
+                    if name not in dependencies
                 ]
                 if missing:
                     report(

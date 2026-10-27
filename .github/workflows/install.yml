@@ -33,3 +33,9 @@ jobs:
 
       - name: zsh syntax check
         run: zsh -n zshrc
+
+      - name: Repo operations integration tests
+        run: |
+          export PATH="$(brew --prefix python@3.13)/libexec/bin:$PATH"
+          rustup component add rustfmt clippy
+          uv run --no-project --python 3.13 python -m unittest discover -s scripts/lib/ops -p 'test_*.py' -v
