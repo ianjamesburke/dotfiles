@@ -1,0 +1,305 @@
+#!/usr/bin/env python3
+"""Generate and audit Ian's repo-local justfile conventions."""
+
+from __future__ import annotations
+
+import argparse
+import difflib
+import importlib.util
+import json
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+if sys.version_info < (3, 11):
+    sys.exit("ops: Python 3.11+ is required")
+
+LIB = Path(__file__).resolve().parent / "lib" / "ops"
+REQUIRED = ("dev", "build", "lint", "test", "check", "changelog", "bump", "release")
+PROFILES = {
+    "rust": {
+        "dev": "cargo run",
+        "build": "cargo build",
+        "lint": "cargo fmt --check && cargo clippy --all-targets -- -D warnings",
+        "test": "cargo test",
+    },
+    "custom": dict.fromkeys(("dev", "build", "lint", "test"), ""),
+}
+
+
+def config_text(profile: str) -> str:
+    commands = "\n".join(
+        f"{name} = {json.dumps(value)}" for name, value in PROFILES[profile].items()
+    )
+    return f"""# Repo-owned commands. Run from the root of THIS checkout/worktree.
+schema = 1
+profile = "{profile}"
+
+[commands]
+{commands}
+
+[release]
+# Explicit source branch for bump, promotion, and publication.
+branch = ""
+# Match stable releases by default; tags must also be reachable from HEAD.
+tag_pattern = '^v[0-9]+\\.[0-9]+\\.[0-9]+$'
+# Hooks run with sh -eu AFTER just check, on a clean worktree on branch above.
+# bump receives patch/minor/major as "$1". Update manifests, locks, changelog,
+# commit, and tag locally here. No push or publication in this hook.
+bump = ""
+# Validate the prepared version/tag and publish here. A push alone is not release.
+publish = ""
+
+[promote]
+# Optional target-specific hooks; each receives its target as "$1".
+# beta = 'bash scripts/promote.sh "$1"'
+"""
+
+
+def scaffold(profile: str) -> dict[str, str]:
+    return {
+        "justfile": (LIB / "justfile").read_text(),
+        "cliff.toml": (LIB / "cliff.toml").read_text(),
+        ".ops.toml": config_text(profile),
+        "scripts/ops.py": (LIB / "runner.py").read_text(),
+    }
+
+
+def unsafe_path(root: Path, relative: str) -> bool:
+    path = root
+    for part in Path(relative).parts:
+        path /= part
+        if path.is_symlink():
+            return True
+    return False
+
+
+def initialize(root: Path, profile: str, dry_run: bool) -> int:
+    if not root.is_dir():
+        raise ValueError(f"target directory does not exist: {root}")
+    files = scaffold(profile)
+    conflicts = [
+        name for name in files if (root / name).exists() or unsafe_path(root, name)
+    ]
+    for alternative in ("Justfile", ".justfile", ".Justfile"):
+        if (root / alternative).exists() and not (root / "justfile").exists():
+            conflicts.append(alternative)
+    if dry_run:
+        for name, content in files.items():
+            path = root / name
+            old = (
+                path.read_text()
+                if path.is_file() and not unsafe_path(root, name)
+                else ""
+            )
+            print(
+                "".join(
+                    difflib.unified_diff(
+                        old.splitlines(True),
+                        content.splitlines(True),
+                        fromfile=f"a/{name}",
+                        tofile=f"b/{name}",
+                    )
+                ),
+                end="",
+            )
+        if conflicts:
+            print(
+                "Existing paths would be preserved: " + ", ".join(conflicts),
+                file=sys.stderr,
+            )
+        return 0
+    if conflicts:
+        raise ValueError(
+            "refusing to overwrite existing paths: "
+            + ", ".join(conflicts)
+            + "; use --dry-run to review the proposed diff"
+        )
+    # Preflight every destination before writing any file.
+    for name in files:
+        parent = (root / name).parent
+        if parent.exists() and not parent.is_dir():
+            raise ValueError(f"not a directory: {parent}")
+    for name, content in files.items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("x") as stream:
+            stream.write(content)
+        print(f"Created {path}")
+    print(
+        "Edit .ops.toml for this repo; release hooks are unconfigured.\nNext: just --list; ops audit"
+    )
+    return 0
+
+
+def audit(root: Path) -> int:
+    findings: list[tuple[str, str]] = []
+
+    def report(level: str, message: str) -> None:
+        findings.append((level, message))
+        print(f"{level}: {message}")
+
+    print(f"Auditing {root}\nStatic inspection only; no recipes or hooks are executed.")
+    for tool in ("just", "git", "git-cliff", "python3"):
+        report(
+            "PASS" if shutil.which(tool) else "FAIL",
+            f"{tool} available" if shutil.which(tool) else f"install {tool}",
+        )
+    paths = [root / name for name in ("justfile", "Justfile", ".justfile", ".Justfile")]
+    justfile = next((p for p in paths if p.is_file()), None)
+    if justfile is None:
+        report("FAIL", "missing justfile; run ops init --profile rust|custom")
+    elif shutil.which("just"):
+        result = subprocess.run(
+            ["just", "--justfile", str(justfile), "--dump", "--dump-format", "json"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode:
+            report("FAIL", "justfile does not parse: " + result.stderr.strip())
+        else:
+            data = json.loads(result.stdout)
+            recipes = data["recipes"]
+            aliases = data.get("aliases", {})
+            for name in REQUIRED:
+                report(
+                    "PASS" if name in recipes or name in aliases else "FAIL",
+                    f"recipe {name}"
+                    if name in recipes or name in aliases
+                    else f"missing recipe {name}",
+                )
+            first = data.get("first")
+            for name, recipe in recipes.items():
+                if any(
+                    a == "default" or isinstance(a, dict) and "default" in a
+                    for a in recipe.get("attributes", [])
+                ):
+                    first = name
+            default = recipes.get(first, {})
+            body = default.get("body", [])
+            lists_only = body in (
+                [["@just --list"]],
+                [["just --list"]],
+                [["@just -l"]],
+                [["just -l"]],
+            )
+            if lists_only and not default.get("dependencies"):
+                report("PASS", "bare just lists commands")
+            else:
+                report(
+                    "WARN",
+                    f"bare just selects {first!r}; prefer a default recipe that only lists commands",
+                )
+            if "check" in recipes:
+                dependencies = {
+                    dependency.get("recipe")
+                    for dependency in recipes["check"].get("dependencies", [])
+                }
+                missing = [
+                    name
+                    for name in ("lint", "test", "build")
+                    if name not in dependencies
+                ]
+                if missing:
+                    report(
+                        "WARN",
+                        "check does not declare dependencies on "
+                        + ", ".join(missing)
+                        + "; inspect its body",
+                    )
+                else:
+                    report("PASS", "check depends on lint, test, and build")
+            if "--bump" in json.dumps(recipes.get("changelog", {}).get("body", [])):
+                report(
+                    "WARN",
+                    "changelog calculates a version; check it agrees with the requested bump",
+                )
+    config_path = root / ".ops.toml"
+    if not config_path.exists():
+        report("WARN", "no .ops.toml; existing recipe behavior needs manual review")
+    else:
+        # Load our trusted validator, never Python code from the audited repo.
+        spec = importlib.util.spec_from_file_location("ops_runner", LIB / "runner.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        try:
+            config = module.load_config(root)
+            for name in ("dev", "build", "lint", "test"):
+                report(
+                    "PASS"
+                    if config.get("commands", {}).get(name, "").strip()
+                    else "FAIL",
+                    f"configured command {name}"
+                    if config.get("commands", {}).get(name, "").strip()
+                    else f"configure [commands] {name}",
+                )
+            for name in ("branch", "bump", "publish"):
+                if not config.get("release", {}).get(name, "").strip():
+                    report(
+                        "WARN",
+                        f"configure [release] {name} before using release commands",
+                    )
+            re.compile(
+                config.get("release", {}).get(
+                    "tag_pattern", r"^v[0-9]+\.[0-9]+\.[0-9]+$"
+                )
+            )
+            if not (root / "scripts/ops.py").is_file():
+                report("FAIL", "missing scripts/ops.py")
+        except (OSError, ValueError, module.OpsError, re.error) as error:
+            report("FAIL", f"invalid .ops.toml: {error}")
+    cliff = root / "cliff.toml"
+    if not cliff.is_file():
+        report("FAIL", "missing cliff.toml")
+    else:
+        import tomllib
+
+        try:
+            config = tomllib.loads(cliff.read_text())
+            if not config.get("git", {}).get("tag_pattern"):
+                report("WARN", "cliff.toml has no explicit release tag pattern")
+        except (OSError, ValueError) as error:
+            report("FAIL", f"invalid cliff.toml: {error}")
+    failed = sum(level == "FAIL" for level, _ in findings)
+    warned = sum(level == "WARN" for level, _ in findings)
+    print(
+        f"Result: {failed} failure(s), {warned} warning(s). Recipe behavior remains unverified."
+    )
+    return 1 if failed else 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="action", required=True)
+    init = sub.add_parser(
+        "init", help="generate editable files; never overwrite existing files"
+    )
+    init.add_argument("path", nargs="?", default=".")
+    init.add_argument("--profile", choices=PROFILES, required=True)
+    init.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="print proposed diffs without writing files",
+    )
+    inspect = sub.add_parser(
+        "audit", help="inspect conventions without running recipes"
+    )
+    inspect.add_argument("path", nargs="?", default=".")
+    args = parser.parse_args()
+    root = Path(args.path).expanduser().resolve()
+    try:
+        return (
+            initialize(root, args.profile, args.dry_run)
+            if args.action == "init"
+            else audit(root)
+        )
+    except (OSError, ValueError) as error:
+        print(f"ops: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

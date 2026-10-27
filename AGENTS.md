@@ -18,6 +18,7 @@ Examples:
 - `bashrc` — bash entry point for Linux servers without zsh: aliases, completions; execs zsh when present
 - `Brewfile` — all Homebrew packages; drives `brew bundle` in `install.sh`
 - `install.sh` — new-machine bootstrap; core wiring plus per-component opt-in (`--all` accepts everything)
-- `scripts/` — standalone scripts symlinked into `~/dotfiles/scripts/`
+- `scripts/` — standalone scripts on PATH via `$DOTFILES/scripts`; `ops` scaffolds and audits repo-local justfiles
+- `scripts/lib/ops/AGENTS.md` — ops templates, generated runtime, and integration-test contracts
 - `launchd/` — launchd plists symlinked to `~/Library/LaunchAgents/`
 - `themes/` — shell themes

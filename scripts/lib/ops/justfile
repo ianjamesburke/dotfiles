@@ -1,0 +1,50 @@
+# List commands when invoked without a recipe.
+default:
+    @just --list
+
+# Start development.
+dev:
+    @python3 scripts/ops.py run dev
+
+# Build the project.
+build:
+    @python3 scripts/ops.py run build
+
+# Check formatting and lint without changing source files.
+lint:
+    @python3 scripts/ops.py run lint
+
+# Run automated tests.
+test:
+    @python3 scripts/ops.py run test
+
+# Run all required local checks; stop on the first failure.
+check: lint test build
+
+# Preview committed changes since a release tag, or an explicit base ref.
+[positional-arguments]
+changelog base="":
+    @python3 scripts/ops.py changelog "$1"
+
+# Show commits this checkout adds beyond another branch or ref.
+[positional-arguments]
+changes base:
+    @python3 scripts/ops.py changes "$1"
+
+# Show commits absent from the configured upstream (no fetch).
+unpushed:
+    @python3 scripts/ops.py unpushed
+
+# Prepare a local release using the configured hook (default: patch).
+[positional-arguments]
+bump kind="patch":
+    @python3 scripts/ops.py bump "$1"
+
+# Move code using the hook configured for this target.
+[positional-arguments]
+promote target:
+    @python3 scripts/ops.py promote "$1"
+
+# Publish using the configured release hook.
+release:
+    @python3 scripts/ops.py release

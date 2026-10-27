@@ -2,6 +2,12 @@
 
 Personal automation scripts shared across machines (macOS + Linux/Omarchy).
 
+## Repo operations
+
+`ops init --profile rust|custom` generates editable justfile and git-cliff
+scaffolding. `ops audit [path]` inspects an existing repo without running its
+recipes. See [usage and release-hook configuration](lib/ops/README.md).
+
 ## The System: Git-Backed Daily Logging
 
 `~/github/daily_log/` is the **single source of truth** for all personal data — voice transcripts, screen time, journals. Everything writes files there; a background timer auto-syncs to GitHub every 5 minutes.
