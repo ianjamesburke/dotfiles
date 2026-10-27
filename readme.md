@@ -44,6 +44,9 @@ To stay in bash: `export DOTFILES_NO_ZSH=1` before the source line.
 - `scripts/` — shell utilities on `$PATH` via `$DOTFILES/scripts`
 - `themes/` — zsh prompt themes
 
+For consistent project commands, use `ops init --profile rust|custom` or
+`ops audit [path]`. See [repo operations](scripts/lib/ops/README.md).
+
 ## Machine-specific config
 
 Put overrides, secrets, and machine-specific `PATH` additions in `~/.zshrc` *after* the source line. Keep `~/.zsh_secrets` (gitignored) for API keys and tokens.
