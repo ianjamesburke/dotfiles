@@ -146,7 +146,7 @@ bindkey "^X^E" edit-command-line
 # General
 # Claude tiers (Small / Medium / Large) — single source of truth for agent model routing (babysitter skill launches panes with these)
 
-# Pi router tiers. Keep these stable; ~/.pi/agent/extensions/subscription-router.ts owns model selection and fallbacks.
+# Pi tiers (pis / pim / pil) live in aliases.sh — same Small / Medium / Large ladder as the Claude aliases.
 
 # pi-background-tasks: load only the shell-task lane (bg_run/bg_status/jobs + wake).
 # Without this the package also loads delegate/fusion/attested/attribution, and the
