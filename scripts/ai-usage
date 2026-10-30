@@ -13,14 +13,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 HOME = Path.home()
+# Below this fraction of the window elapsed, used/elapsed is dominated by noise
+# (12% used 5% into a 7d window reads as 250%), so no projection is shown.
+MIN_ELAPSED = 0.15
 
 
 class ProviderError(Exception):
     pass
 
 
-def window(label: str, used_pct: float, resets: datetime, window_h: float) -> dict:
-    left_h = max((resets - datetime.now(timezone.utc)).total_seconds() / 3600, 0)
+def window(label: str, used_pct: float, resets: datetime, window_h: float, now: datetime | None = None) -> dict:
+    left_h = max((resets - (now or datetime.now(timezone.utc))).total_seconds() / 3600, 0)
     elapsed = 1 - left_h / window_h
     w = {
         "label": label,
@@ -33,7 +36,7 @@ def window(label: str, used_pct: float, resets: datetime, window_h: float) -> di
         "over_pace": None,
         "budget_pct_per_hour": None,
     }
-    if elapsed >= 0.02:
+    if elapsed >= MIN_ELAPSED:
         w["projected_pct"] = round(used_pct / elapsed, 1)
         w["over_pace"] = w["projected_pct"] > 100
         w["budget_pct_per_hour"] = round((100 - used_pct) / left_h, 2) if left_h else None
@@ -134,7 +137,7 @@ def left(hours: float) -> str:
     return f"{d}d {h}h" if d else f"{h}h" if h else f"{m}m"
 
 
-def render(results: dict) -> None:
+def render(results: dict, short: bool) -> None:
     red, dim, reset = ("\033[31m", "\033[2m", "\033[0m") if sys.stdout.isatty() else ("", "", "")
     rows = [("", "WINDOW", "USED", "RESETS", "LEFT", "PACE", "BUDGET/DAY")]
     errors = []
@@ -143,6 +146,8 @@ def render(results: dict) -> None:
             errors.append(f"{name}: {result['error']}")
             continue
         for w in result["windows"]:
+            if w["window_hours"] <= 24 and not short:
+                continue
             when = datetime.fromisoformat(w["resets_at"]).astimezone().strftime("%a %H:%M")
             if w["projected_pct"] is None:
                 pace, budget = "-", "-"
@@ -169,6 +174,7 @@ def render(results: dict) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--json", action="store_true", help="emit JSON instead of text")
+    ap.add_argument("--short", action="store_true", help="also show windows of 24h or less (5-hour rows)")
     args = ap.parse_args()
     results = {}
     for name, fn in (("claude", claude), ("codex", codex), ("antigravity", antigravity)):
@@ -179,7 +185,7 @@ def main() -> None:
     if args.json:
         print(json.dumps({"generated_at": datetime.now(timezone.utc).isoformat(), "providers": results}, indent=2))
         return
-    render(results)
+    render(results, args.short)
 
 
 if __name__ == "__main__":
