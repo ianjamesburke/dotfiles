@@ -97,7 +97,7 @@ def codex() -> list[dict]:
             mins = w["windowDurationMins"]
             label = f"{mins // 1440}-day" if mins >= 1440 else f"{mins // 60}-hour"
             out.append(window(label, w["usedPercent"], datetime.fromtimestamp(w["resetsAt"], timezone.utc), mins / 60))
-    credits = res.get("rateLimitResetCredits", {}).get("credits", [])
+    credits = (res.get("rateLimitResetCredits") or {}).get("credits") or []
     avail = [c for c in credits if c["status"] == "available"]
     if out and avail:
         exp = min(datetime.fromtimestamp(c["expiresAt"]) for c in avail)
